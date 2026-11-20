@@ -136,8 +136,8 @@ feature/
    - 字段：`novelJson: String`（序列化后的完整 `NovelDto`，含 `volumes` 与 `chapters`）、`updatedAt: Long`
 5. **`chapter_cache`**（新增，为 Phase 2 批量下载预留 `source` 字段）：
    - 主键：`(platform, chapterId)`
-   - 字段：`novelId: String`, `title: String`, `contentHtml: String`, `byteSize: Long`, `accessedAt: Long`, `source: String`（默认值 `"auto"`，Phase 2 手动下载可标记 `"manual"` 避免被自动 LRU 清理）
-   - **自动 LRU 淘汰策略（默认决策）**：Phase 1 仅对 `source = "auto"` 记录执行轻量 LRU 淘汰，上限为 **200 章或 50 MB**；每次写入 `chapter_cache` 后若超限，按 `accessedAt ASC` 删除最旧的 `"auto"` 章节直至回到阈值内（绝不删除 `"manual"` 记录）。
+   - 字段：`novelId: String`, `title: String`, `contentHtml: String`, `byteSize: Long`, `accessedAt: Long`, `source: String`（默认值 `"auto"`，Phase 2 手动下载可标记 `"manual"`）
+   - **保留策略（用户确认）**：不做自动 LRU 淘汰；只要用户不在设置页手动清理，已缓存的章节正文永久保留在本地 Room 中。
 
 ### 5.2.1 `novel_cache` 刷新策略（默认决策）
 - **Stale-While-Revalidate + 手动下拉刷新**：打开 `NovelDetailScreen` 时，`ReaderRepository` 先立即发射本地 `novel_cache`（秒开、断网可用），同时后台静默请求 `GET /v1/{platform}/novel/{novelId}`（服务端本身已自带缓存与更新检测）；若网络返回成功则更新 `novel_cache` 并刷新 UI，若网络失败且已有本地缓存则静默保留缓存不弹破坏性错误；页面同时支持 `PullToRefreshBox` 手动强制刷新目录。
@@ -249,7 +249,7 @@ feature/
    - `AcanthisApiClientTest`：验证所有接口路径/查询参数、Bearer Token 注入、`ApiEnvelope` 解包、401/404/`503 + Retry-After` 错误解析。
    - `SyncCoordinatorTest`：验证 LWW 合并、2 秒防抖推送、推送途中新修改不被误删、cursor 仅由 GET 推进而不由 POST 推进、断网失败保留脏队列。
    - `ExploreRepositoryTest`：验证 schema 缓存复用、5 秒搜索节流提示。
-   - `ReaderRepositoryTest`：验证 `novel_cache` Stale-While-Revalidate 行为（缓存优先 + 后台刷新 + 断网保留缓存）、章节缓存优先命中与回源写缓存、`chapter_cache` 按 `source = "auto"` 的 LRU 淘汰（不误删 `"manual"`）、下一章预取去重与错误静默。
+   - `ReaderRepositoryTest`：验证 `novel_cache` Stale-While-Revalidate 行为（缓存优先 + 后台刷新 + 断网保留缓存）、章节缓存优先命中与永久保留写缓存（不做自动淘汰）、手动清理缓存、下一章预取去重与错误静默。
    - 保留已有 `MediaUrlRebaseTest`、`ChapterParserTest`，并补充章节解析边界用例。
 2. **构建验证**：
    - `.\gradlew.bat :composeApp:testAndroidHostTest --stacktrace` 全绿
