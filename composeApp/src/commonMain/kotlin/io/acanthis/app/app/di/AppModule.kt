@@ -27,6 +27,7 @@ import io.acanthis.app.feature.explore.ExploreViewModel
 import io.acanthis.app.feature.reader.ReaderViewModel
 import io.acanthis.app.feature.settings.SettingsViewModel
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,11 @@ val appModule = module {
     single {
         val json = get<Json>()
         HttpClient(createHttpClientEngine()) {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000L
+                connectTimeoutMillis = 60_000L
+                socketTimeoutMillis = 60_000L
+            }
             install(ContentNegotiation) {
                 json(json)
             }

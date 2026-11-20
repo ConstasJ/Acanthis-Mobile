@@ -177,127 +177,129 @@ fun ReaderScreen(
             }
 
             else -> {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(
-                        start = uiState.settings.horizontalPaddingDp.dp,
-                        end = uiState.settings.horizontalPaddingDp.dp,
-                        top = 24.dp,
-                        bottom = 48.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = bodyInteractionSource,
-                            indication = null,
-                        ) { overlaysVisible = !overlaysVisible },
-                ) {
-                    if (showChapterHeader) {
-                        item(key = "chapter_header:${uiState.currentChapterId}") {
-                            ChapterHeaderBlock(
-                                volumeTitle = uiState.volumeTitle,
-                                chapterTitle = uiState.chapterTitle,
-                                settings = uiState.settings,
+                Column(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            start = uiState.settings.horizontalPaddingDp.dp,
+                            end = uiState.settings.horizontalPaddingDp.dp,
+                            top = 24.dp,
+                            bottom = 24.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = bodyInteractionSource,
+                                indication = null,
+                            ) { overlaysVisible = !overlaysVisible },
+                    ) {
+                        if (showChapterHeader) {
+                            item(key = "chapter_header:${uiState.currentChapterId}") {
+                                ChapterHeaderBlock(
+                                    volumeTitle = uiState.volumeTitle,
+                                    chapterTitle = uiState.chapterTitle,
+                                    settings = uiState.settings,
+                                    palette = palette,
+                                )
+                            }
+                        }
+
+                        if (uiState.blocks.isEmpty()) {
+                            item(key = "empty_chapter:${uiState.currentChapterId}") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 64.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "本章暂无可显示正文内容",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = palette.secondaryText,
+                                    )
+                                }
+                            }
+                        } else {
+                            itemsIndexed(
+                                items = uiState.blocks,
+                                key = { _, block -> "${uiState.currentChapterId}:${block.blockIndex}" },
+                            ) { _, block ->
+                                when (block) {
+                                    is ReaderBlock.Heading -> {
+                                        ReaderHeadingItem(
+                                            block = block,
+                                            settings = uiState.settings,
+                                            palette = palette,
+                                        )
+                                    }
+
+                                    is ReaderBlock.Paragraph -> {
+                                        ReaderParagraphItem(
+                                            block = block,
+                                            settings = uiState.settings,
+                                            palette = palette,
+                                        )
+                                    }
+
+                                    is ReaderBlock.Image -> {
+                                        ReaderImageItem(
+                                            block = block,
+                                            palette = palette,
+                                            onClick = { activeIllustration = block },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        item(key = "chapter_footer:${uiState.currentChapterId}") {
+                            ChapterNavigationFooterCard(
+                                previousChapter = uiState.previousChapter,
+                                nextChapter = uiState.nextChapter,
+                                isNextPrefetched = uiState.isNextChapterPrefetched,
                                 palette = palette,
+                                onPrevious = {
+                                    overlaysVisible = false
+                                    viewModel.previousChapter()
+                                },
+                                onNext = {
+                                    overlaysVisible = false
+                                    viewModel.nextChapter()
+                                },
                             )
                         }
                     }
 
-                    if (uiState.blocks.isEmpty()) {
-                        item(key = "empty_chapter:${uiState.currentChapterId}") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 64.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "本章暂无可显示正文内容",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = palette.secondaryText,
-                                )
-                            }
+                    // Dedicated bottom status strip so scrolling content never renders underneath it
+                    if (uiState.blocks.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(palette.background)
+                                .padding(
+                                    horizontal = uiState.settings.horizontalPaddingDp.dp,
+                                    vertical = 6.dp,
+                                ),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = uiState.chapterTitle.ifBlank { uiState.novelTitle },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.secondaryText.copy(alpha = 0.78f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "${uiState.scrollPercent}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.secondaryText.copy(alpha = 0.78f),
+                            )
                         }
-                    } else {
-                        itemsIndexed(
-                            items = uiState.blocks,
-                            key = { _, block -> "${uiState.currentChapterId}:${block.blockIndex}" },
-                        ) { _, block ->
-                            when (block) {
-                                is ReaderBlock.Heading -> {
-                                    ReaderHeadingItem(
-                                        block = block,
-                                        settings = uiState.settings,
-                                        palette = palette,
-                                    )
-                                }
-
-                                is ReaderBlock.Paragraph -> {
-                                    ReaderParagraphItem(
-                                        block = block,
-                                        settings = uiState.settings,
-                                        palette = palette,
-                                    )
-                                }
-
-                                is ReaderBlock.Image -> {
-                                    ReaderImageItem(
-                                        block = block,
-                                        palette = palette,
-                                        onClick = { activeIllustration = block },
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    item(key = "chapter_footer:${uiState.currentChapterId}") {
-                        ChapterNavigationFooterCard(
-                            previousChapter = uiState.previousChapter,
-                            nextChapter = uiState.nextChapter,
-                            isNextPrefetched = uiState.isNextChapterPrefetched,
-                            palette = palette,
-                            onPrevious = {
-                                overlaysVisible = false
-                                viewModel.previousChapter()
-                            },
-                            onNext = {
-                                overlaysVisible = false
-                                viewModel.nextChapter()
-                            },
-                        )
-                    }
-                }
-
-                // Subtle pinned bottom status strip when overlay bars are hidden
-                if (!overlaysVisible && uiState.blocks.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .background(palette.background.copy(alpha = 0.92f))
-                            .padding(
-                                horizontal = uiState.settings.horizontalPaddingDp.dp,
-                                vertical = 6.dp,
-                            ),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = uiState.chapterTitle.ifBlank { uiState.novelTitle },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = palette.secondaryText.copy(alpha = 0.78f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "${uiState.scrollPercent}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = palette.secondaryText.copy(alpha = 0.78f),
-                        )
                     }
                 }
             }
