@@ -22,6 +22,7 @@ import io.acanthis.app.data.StoreSyncConfigProvider
 import io.acanthis.app.data.SyncConfigProvider
 import io.acanthis.app.data.SyncCoordinator
 import io.acanthis.app.feature.bookshelf.BookshelfViewModel
+import io.acanthis.app.feature.detail.NovelDetailViewModel
 import io.acanthis.app.feature.explore.ExploreViewModel
 import io.acanthis.app.feature.settings.SettingsViewModel
 import io.ktor.client.HttpClient
@@ -31,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
+import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.bind
 import org.koin.dsl.module
@@ -122,4 +124,12 @@ val appModule = module {
     viewModelOf(::BookshelfViewModel)
     viewModelOf(::ExploreViewModel)
     viewModelOf(::SettingsViewModel)
+    viewModel { (platform: String, novelId: String) ->
+        NovelDetailViewModel(
+            platform = platform,
+            novelId = novelId,
+            readerRepository = get(),
+            libraryRepository = get(),
+        )
+    }
 }

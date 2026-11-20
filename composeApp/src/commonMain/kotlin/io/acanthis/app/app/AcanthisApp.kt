@@ -49,6 +49,7 @@ import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
 import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.feature.bookshelf.BookshelfScreen
+import io.acanthis.app.feature.detail.NovelDetailScreen
 import io.acanthis.app.feature.explore.ExploreScreen
 import io.acanthis.app.feature.settings.SettingsScreen
 import org.koin.compose.koinInject
@@ -181,10 +182,19 @@ fun AcanthisApp(
 
                     composable<NovelDetailRoute> { entry ->
                         val route = entry.toRoute<NovelDetailRoute>()
-                        SecondaryPlaceholderScreen(
-                            title = "小说详情 · ${route.novelId}",
-                            subtitle = "平台：${route.platform}（Task 8 接入完整详情与分卷目录）",
+                        NovelDetailScreen(
+                            platform = route.platform,
+                            novelId = route.novelId,
                             onBack = { navController.popBackStack() },
+                            onOpenChapter = { platform, novelId, chapterId ->
+                                navController.navigate(
+                                    ReaderRoute(
+                                        platform = platform,
+                                        novelId = novelId,
+                                        chapterId = chapterId,
+                                    ),
+                                )
+                            },
                         )
                     }
 
