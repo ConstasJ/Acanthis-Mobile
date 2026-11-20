@@ -1,11 +1,13 @@
 package io.acanthis.app.core.network
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class ApiEnvelope<T>(
     val code: Int,
-    val message: String,
+    val message: String = "",
     val data: T? = null,
 )
 
@@ -33,4 +35,203 @@ class ApiException(
     val statusCode: Int,
     val apiCode: Int,
     override val message: String,
+    val retryAfterSeconds: Int? = null,
 ) : Exception(message)
+
+@Serializable
+data class ExploreFilterOptionDto(
+    val value: String,
+    val label: String,
+)
+
+@Serializable
+data class ExploreFilterGroupDto(
+    val key: String,
+    val label: String,
+    val defaultValue: String = "",
+    val options: List<ExploreFilterOptionDto> = emptyList(),
+)
+
+@Serializable
+data class ExploreChannelOptionDto(
+    val id: String,
+    val label: String,
+    val requiresChallenge: Boolean = false,
+)
+
+@Serializable
+data class ExploreRankingOptionDto(
+    val id: String,
+    val label: String,
+    val supportsAll: Boolean = true,
+    val supportsFull: Boolean = true,
+)
+
+@Serializable
+data class ExploreSchemaDto(
+    val platform: String,
+    val supportsHome: Boolean = true,
+    val channels: List<ExploreChannelOptionDto> = emptyList(),
+    val rankings: List<ExploreRankingOptionDto> = emptyList(),
+    val catalogRequiresChallenge: Boolean = false,
+    val catalogFilters: List<ExploreFilterGroupDto> = emptyList(),
+)
+
+@Serializable
+data class ExploreNovelItemDto(
+    val id: String,
+    val platform: String,
+    val title: String,
+    val coverUrl: String? = null,
+    val author: String? = null,
+    val summary: String? = null,
+    val status: String? = null,
+    val category: String? = null,
+    val genres: List<String> = emptyList(),
+    val latestChapter: String? = null,
+    val latestChapterId: String? = null,
+    val wordCount: String? = null,
+    val updatedAt: String? = null,
+    val rank: Int? = null,
+)
+
+@Serializable
+data class ExploreSectionMoreTargetDto(
+    val type: String,
+    val params: Map<String, String> = emptyMap(),
+)
+
+@Serializable
+data class ExploreSectionDto(
+    val id: String,
+    val title: String,
+    val layout: String,
+    val items: List<ExploreNovelItemDto> = emptyList(),
+    val more: ExploreSectionMoreTargetDto? = null,
+)
+
+@Serializable
+data class ExploreHomeDataDto(
+    val platform: String,
+    val channel: String,
+    val title: String = "",
+    val sections: List<ExploreSectionDto> = emptyList(),
+)
+
+@Serializable
+data class ExplorePageDto(
+    val platform: String,
+    val items: List<ExploreNovelItemDto> = emptyList(),
+    val page: Int = 1,
+    val totalPages: Int? = null,
+    val hasNextPage: Boolean = false,
+)
+
+@Serializable
+data class NovelSearchResultDto(
+    val id: String,
+    val platform: String,
+    val title: String,
+    val coverUrl: String? = null,
+)
+
+@Serializable
+data class ChapterDto(
+    val id: String,
+    val platform: String? = null,
+    val title: String,
+    val novelId: String? = null,
+    val volumeId: String? = null,
+    val contentHash: String? = null,
+)
+
+@Serializable
+data class VolumeDto(
+    val id: String,
+    val platform: String? = null,
+    val title: String,
+    val coverUrl: String? = null,
+    val novelId: String? = null,
+    val chapters: List<ChapterDto> = emptyList(),
+)
+
+@Serializable
+data class NovelDto(
+    val id: String,
+    val platform: String,
+    val title: String,
+    val coverUrl: String? = null,
+    val author: String = "",
+    val summary: String = "",
+    val status: String = "unknown",
+    val genres: List<String> = emptyList(),
+    val volumes: List<VolumeDto> = emptyList(),
+)
+
+@Serializable
+data class ChapterContentResponseDto(
+    val content: String,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class BookshelfItemDto(
+    val platform: String,
+    val novelId: String,
+    val title: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val author: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val coverUrl: String = "",
+    val addedAt: Long,
+    val updatedAt: Long,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val deletedAt: Long? = null,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class ReadingProgressDto(
+    val platform: String,
+    val novelId: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val novelTitle: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val coverUrl: String = "",
+    val volumeId: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val volumeTitle: String = "",
+    val chapterId: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val chapterTitle: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val paragraphIndex: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val totalParagraphs: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val deviceLabel: String = "",
+    val updatedAt: Long,
+)
+
+@Serializable
+data class SyncStatePullResponseDto(
+    val bookshelf: List<BookshelfItemDto> = emptyList(),
+    val progress: List<ReadingProgressDto> = emptyList(),
+    val cursor: Long = 0L,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class SyncStatePushPayloadDto(
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val bookshelf: List<BookshelfItemDto>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val progress: List<ReadingProgressDto>? = null,
+)
+
+@Serializable
+data class SyncStatePushResponseDto(
+    val bookshelf: List<BookshelfItemDto> = emptyList(),
+    val progress: List<ReadingProgressDto> = emptyList(),
+    val serverTime: Long = 0L,
+)
