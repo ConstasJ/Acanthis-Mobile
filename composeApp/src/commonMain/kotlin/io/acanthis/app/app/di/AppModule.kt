@@ -24,6 +24,7 @@ import io.acanthis.app.data.SyncCoordinator
 import io.acanthis.app.feature.bookshelf.BookshelfViewModel
 import io.acanthis.app.feature.detail.NovelDetailViewModel
 import io.acanthis.app.feature.explore.ExploreViewModel
+import io.acanthis.app.feature.reader.ReaderViewModel
 import io.acanthis.app.feature.settings.SettingsViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -130,6 +131,17 @@ val appModule = module {
             novelId = novelId,
             readerRepository = get(),
             libraryRepository = get(),
+        )
+    }
+    viewModel { (platform: String, novelId: String, chapterId: String) ->
+        ReaderViewModel(
+            platform = platform,
+            novelId = novelId,
+            initialChapterId = chapterId,
+            readerRepository = get(),
+            libraryRepository = get(),
+            readerSettingsStore = get(),
+            serverConfigStore = get(),
         )
     }
 }

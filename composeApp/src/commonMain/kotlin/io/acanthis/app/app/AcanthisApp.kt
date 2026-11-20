@@ -1,30 +1,22 @@
 package io.acanthis.app.app
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -51,6 +43,7 @@ import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.feature.bookshelf.BookshelfScreen
 import io.acanthis.app.feature.detail.NovelDetailScreen
 import io.acanthis.app.feature.explore.ExploreScreen
+import io.acanthis.app.feature.reader.ReaderScreen
 import io.acanthis.app.feature.settings.SettingsScreen
 import org.koin.compose.koinInject
 
@@ -200,44 +193,15 @@ fun AcanthisApp(
 
                     composable<ReaderRoute> { entry ->
                         val route = entry.toRoute<ReaderRoute>()
-                        SecondaryPlaceholderScreen(
-                            title = "阅读器 · ${route.chapterId}",
-                            subtitle = "平台：${route.platform} / 小说：${route.novelId}（Task 9 接入完整阅读器）",
+                        ReaderScreen(
+                            platform = route.platform,
+                            novelId = route.novelId,
+                            initialChapterId = route.chapterId,
                             onBack = { navController.popBackStack() },
                         )
                     }
                 }
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SecondaryPlaceholderScreen(
-    title: String,
-    subtitle: String,
-    onBack: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(title) },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回",
-                    )
-                }
-            },
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(text = subtitle, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
