@@ -10,6 +10,10 @@ expect fun platformName(): String
 
 expect fun defaultDeviceLabel(): String
 
+expect fun currentTimeMillis(): Long
+
+expect fun platformCacheDirectory(): String
+
 expect fun createHttpClientEngine(): HttpClientEngine
 
 expect fun createAppDatabaseBuilder(): RoomDatabase.Builder<AppDatabase>

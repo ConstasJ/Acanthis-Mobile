@@ -35,6 +35,11 @@ actual fun defaultDeviceLabel(): String {
         .ifBlank { "Android" }
 }
 
+actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
+actual fun platformCacheDirectory(): String =
+    AndroidPlatformContext.requireContext().cacheDir.absolutePath
+
 actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
 
 actual fun createAppDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
