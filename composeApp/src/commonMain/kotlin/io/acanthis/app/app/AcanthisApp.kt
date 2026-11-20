@@ -3,16 +3,12 @@ package io.acanthis.app.app
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +49,7 @@ import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
 import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.feature.bookshelf.BookshelfScreen
+import io.acanthis.app.feature.explore.ExploreScreen
 import io.acanthis.app.feature.settings.SettingsScreen
 import org.koin.compose.koinInject
 
@@ -168,11 +165,12 @@ fun AcanthisApp(
                     }
 
                     composable<ExploreRoute> {
-                        PlaceholderTabScreen(
-                            headerTitle = "Acanthis · 发现",
-                            title = "发现（Task 7 接入）",
-                            description = "将动态消费服务端 /explore/schema，支持频道推荐、榜单、分类筛选与关键词搜索。",
-                            serverConfig = serverConfig,
+                        ExploreScreen(
+                            onOpenNovel = { platform, novelId ->
+                                navController.navigate(
+                                    NovelDetailRoute(platform = platform, novelId = novelId),
+                                )
+                            },
                             onOpenSettings = { navigateToTab(TopLevelTab.Settings) },
                         )
                     }
@@ -198,68 +196,6 @@ fun AcanthisApp(
                             onBack = { navController.popBackStack() },
                         )
                     }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PlaceholderTabScreen(
-    headerTitle: String,
-    title: String,
-    description: String,
-    serverConfig: ServerConfig,
-    onOpenSettings: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text(headerTitle) })
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (!serverConfig.isConfigured) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = "尚未配置 Acanthis 服务器",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            text = "请先前往设置页填写 api-server 地址并验证连通性（Android 模拟器访问本机可使用 http://10.0.2.2:5301）。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Button(onClick = onOpenSettings) {
-                            Text("去配置服务器")
-                        }
-                    }
-                }
-            }
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(text = title, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }

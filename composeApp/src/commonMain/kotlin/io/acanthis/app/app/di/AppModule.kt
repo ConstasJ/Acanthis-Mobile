@@ -22,6 +22,7 @@ import io.acanthis.app.data.StoreSyncConfigProvider
 import io.acanthis.app.data.SyncConfigProvider
 import io.acanthis.app.data.SyncCoordinator
 import io.acanthis.app.feature.bookshelf.BookshelfViewModel
+import io.acanthis.app.feature.explore.ExploreViewModel
 import io.acanthis.app.feature.settings.SettingsViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -119,5 +120,6 @@ val appModule = module {
     }
 
     viewModelOf(::BookshelfViewModel)
+    viewModelOf(::ExploreViewModel)
     viewModelOf(::SettingsViewModel)
 }
