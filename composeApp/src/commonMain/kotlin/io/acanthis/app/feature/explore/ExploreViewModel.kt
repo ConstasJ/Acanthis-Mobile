@@ -10,12 +10,15 @@ import io.acanthis.app.core.network.ExploreSectionMoreTargetDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
 import io.acanthis.app.core.network.stripTrailingV1Prefix
+import io.acanthis.app.core.network.toExploreNovelItem
+import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
 import io.acanthis.app.data.ExploreRepository
 import io.acanthis.app.data.SearchCooldownException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +31,7 @@ enum class ExploreMode {
     HOME,
     RANKINGS,
     CATALOG,
+    CACHED,
     SEARCH,
 }
 
@@ -71,6 +75,15 @@ data class ExploreUiState(
     val isLoadingCatalog: Boolean = false,
     val isLoadingMoreCatalog: Boolean = false,
     val catalogError: ExploreErrorState? = null,
+    // CACHED
+    val cachedItems: List<ExploreNovelItemDto> = emptyList(),
+    val cachedTotal: Int = 0,
+    val cachedPage: Int = 1,
+    val cachedPageSize: Int = ExploreRepository.DEFAULT_CACHED_PAGE_SIZE,
+    val cachedHasNextPage: Boolean = false,
+    val isLoadingCached: Boolean = false,
+    val isLoadingMoreCached: Boolean = false,
+    val cachedError: ExploreErrorState? = null,
     // SEARCH
     val searchQuery: String = "",
     val submittedQuery: String = "",
@@ -79,18 +92,36 @@ data class ExploreUiState(
     val searchError: ExploreErrorState? = null,
     val searchCooldownSeconds: Int = 0,
 ) {
+    val supportsExplore: Boolean
+        get() {
+            val currentSource = sources.firstOrNull { it.id == selectedPlatform } ?: return true
+            return "explore" in currentSource.capabilities
+        }
+
+    val cachedTotalPages: Int
+        get() = if (cachedTotal <= 0 || cachedPageSize <= 0) {
+            1
+        } else {
+            (cachedTotal + cachedPageSize - 1) / cachedPageSize
+        }
+
     val availableBrowseModes: List<ExploreMode>
         get() {
+            if (!supportsExplore) {
+                return listOf(ExploreMode.CACHED)
+            }
             val currentSchema = schema ?: return listOf(
                 ExploreMode.HOME,
                 ExploreMode.RANKINGS,
                 ExploreMode.CATALOG,
+                ExploreMode.CACHED,
             )
             return buildList {
                 if (currentSchema.supportsHome) add(ExploreMode.HOME)
                 if (currentSchema.rankings.isNotEmpty()) add(ExploreMode.RANKINGS)
                 if (currentSchema.catalogFilters.isNotEmpty()) add(ExploreMode.CATALOG)
-            }.ifEmpty { listOf(ExploreMode.HOME) }
+                add(ExploreMode.CACHED)
+            }
         }
 
     companion object {
@@ -99,10 +130,20 @@ data class ExploreUiState(
     }
 }
 
-class ExploreViewModel(
+class ExploreViewModel private constructor(
     private val exploreRepository: ExploreRepository,
-    private val serverConfigStore: ServerConfigStore,
+    private val configFlow: Flow<ServerConfig>,
+    @Suppress("UNUSED_PARAMETER") marker: Unit,
 ) : ViewModel() {
+
+    constructor(
+        exploreRepository: ExploreRepository,
+        serverConfigStore: ServerConfigStore,
+    ) : this(
+        exploreRepository = exploreRepository,
+        configFlow = serverConfigStore.configFlow,
+        marker = Unit,
+    )
 
     private val _uiState = MutableStateFlow(ExploreUiState())
     val uiState: StateFlow<ExploreUiState> = _uiState.asStateFlow()
@@ -111,6 +152,7 @@ class ExploreViewModel(
     private var homeJob: Job? = null
     private var rankingsJob: Job? = null
     private var catalogJob: Job? = null
+    private var cachedJob: Job? = null
     private var searchJob: Job? = null
     private var searchCooldownJob: Job? = null
     private var retryCountdownJob: Job? = null
@@ -121,7 +163,7 @@ class ExploreViewModel(
 
     private fun observeServerConfig() {
         viewModelScope.launch {
-            serverConfigStore.configFlow
+            configFlow
                 .map { config ->
                     stripTrailingV1Prefix(config.apiBaseUrl) to config.authToken.trim()
                 }
@@ -148,13 +190,21 @@ class ExploreViewModel(
             return
         }
         cancelContentRequests()
+        val targetSource = _uiState.value.sources.firstOrNull { it.id == trimmed }
+        val targetSupportsExplore = targetSource == null || "explore" in targetSource.capabilities
         _uiState.update { state ->
+            val nextBrowseMode = if (targetSupportsExplore) state.activeBrowseMode else ExploreMode.CACHED
+            val nextMode = if (state.mode == ExploreMode.SEARCH) ExploreMode.SEARCH else nextBrowseMode
             state.copy(
                 selectedPlatform = trimmed,
+                mode = nextMode,
+                activeBrowseMode = nextBrowseMode,
                 schema = null,
+                isLoadingSchema = false,
                 schemaError = null,
                 selectedChannel = ExploreUiState.DEFAULT_CHANNEL,
                 homeData = null,
+                isLoadingHome = false,
                 homeError = null,
                 selectedRank = "",
                 fullOnly = false,
@@ -162,18 +212,39 @@ class ExploreViewModel(
                 rankingPage = 1,
                 rankingTotalPages = null,
                 rankingHasNextPage = false,
+                isLoadingRankings = false,
+                isLoadingMoreRankings = false,
                 rankingsError = null,
                 selectedFilters = emptyMap(),
                 catalogItems = emptyList(),
                 catalogPage = 1,
                 catalogTotalPages = null,
                 catalogHasNextPage = false,
+                isLoadingCatalog = false,
+                isLoadingMoreCatalog = false,
                 catalogError = null,
+                cachedItems = emptyList(),
+                cachedTotal = 0,
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                isLoadingCached = false,
+                isLoadingMoreCached = false,
+                cachedError = null,
                 searchResults = emptyList(),
                 searchError = null,
             )
         }
-        loadSchemaForPlatform(trimmed, forceRefresh = false)
+        if (!targetSupportsExplore) {
+            bootstrapJob?.cancel()
+            if (_uiState.value.mode != ExploreMode.SEARCH) {
+                loadCached(page = 1, append = false)
+            }
+        } else {
+            loadSchemaForPlatform(trimmed, forceRefresh = false)
+            if (_uiState.value.mode == ExploreMode.CACHED) {
+                loadCached(page = 1, append = false)
+            }
+        }
         if (_uiState.value.mode == ExploreMode.SEARCH && _uiState.value.submittedQuery.isNotBlank()) {
             executeSearch(_uiState.value.submittedQuery)
         }
@@ -219,6 +290,16 @@ class ExploreViewModel(
     fun refreshCurrentTab() {
         val state = _uiState.value
         if (!state.isServerConfigured) return
+        if (state.mode == ExploreMode.CACHED) {
+            loadCached(page = 1, append = false)
+            return
+        }
+        if (state.mode == ExploreMode.SEARCH) {
+            if (state.submittedQuery.isNotBlank()) {
+                executeSearch(state.submittedQuery)
+            }
+            return
+        }
         if (state.schema == null) {
             bootstrapSourcesAndSchema(forceRefresh = true)
             return
@@ -236,11 +317,7 @@ class ExploreViewModel(
                 page = 1,
                 append = false,
             )
-            ExploreMode.SEARCH -> {
-                if (state.submittedQuery.isNotBlank()) {
-                    executeSearch(state.submittedQuery)
-                }
-            }
+            ExploreMode.CACHED, ExploreMode.SEARCH -> Unit
         }
     }
 
@@ -426,6 +503,17 @@ class ExploreViewModel(
         )
     }
 
+    fun loadNextCachedPage() {
+        val state = _uiState.value
+        if (state.isLoadingCached || state.isLoadingMoreCached || !state.cachedHasNextPage) {
+            return
+        }
+        loadCached(
+            page = state.cachedPage + 1,
+            append = true,
+        )
+    }
+
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
         if (query.isBlank() && _uiState.value.mode == ExploreMode.SEARCH) {
@@ -477,10 +565,32 @@ class ExploreViewModel(
 
             val currentSelected = _uiState.value.selectedPlatform
             val resolvedPlatform = when {
-                sources.any { it.id == currentSelected && "explore" in it.capabilities } -> currentSelected
+                sources.any { it.id == currentSelected } -> currentSelected
                 else -> sources.firstOrNull { "explore" in it.capabilities }?.id
                     ?: sources.firstOrNull()?.id
                     ?: ExploreUiState.DEFAULT_PLATFORM
+            }
+
+            val resolvedSource = sources.firstOrNull { it.id == resolvedPlatform }
+            val platformSupportsExplore = resolvedSource == null || "explore" in resolvedSource.capabilities
+
+            if (!platformSupportsExplore) {
+                _uiState.update { state ->
+                    val nextMode = if (state.mode == ExploreMode.SEARCH) ExploreMode.SEARCH else ExploreMode.CACHED
+                    state.copy(
+                        sources = sources,
+                        selectedPlatform = resolvedPlatform,
+                        schema = null,
+                        isLoadingSchema = false,
+                        schemaError = null,
+                        activeBrowseMode = ExploreMode.CACHED,
+                        mode = nextMode,
+                    )
+                }
+                if (_uiState.value.mode != ExploreMode.SEARCH) {
+                    loadCached(page = 1, append = false)
+                }
+                return@launch
             }
 
             _uiState.update {
@@ -525,7 +635,8 @@ class ExploreViewModel(
                 if (schema.supportsHome) add(ExploreMode.HOME)
                 if (schema.rankings.isNotEmpty()) add(ExploreMode.RANKINGS)
                 if (schema.catalogFilters.isNotEmpty()) add(ExploreMode.CATALOG)
-            }.ifEmpty { listOf(ExploreMode.HOME) }
+                add(ExploreMode.CACHED)
+            }
 
             val currentBrowseMode = _uiState.value.activeBrowseMode
             val resolvedBrowseMode = if (currentBrowseMode in availableModes) {
@@ -554,7 +665,10 @@ class ExploreViewModel(
             }
 
             if (resolvedMode != ExploreMode.SEARCH) {
-                ensureBrowseTabLoaded(resolvedBrowseMode, forceReload = true)
+                ensureBrowseTabLoaded(
+                    tab = resolvedBrowseMode,
+                    forceReload = resolvedBrowseMode != ExploreMode.CACHED,
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -578,7 +692,14 @@ class ExploreViewModel(
 
     private fun ensureBrowseTabLoaded(tab: ExploreMode, forceReload: Boolean) {
         val state = _uiState.value
-        if (!state.isServerConfigured || state.schema == null) return
+        if (!state.isServerConfigured) return
+        if (tab == ExploreMode.CACHED) {
+            if (forceReload || (state.cachedItems.isEmpty() && !state.isLoadingCached)) {
+                loadCached(page = 1, append = false)
+            }
+            return
+        }
+        if (state.schema == null) return
         when (tab) {
             ExploreMode.HOME -> {
                 if (forceReload || (state.homeData == null && !state.isLoadingHome)) {
@@ -609,7 +730,7 @@ class ExploreViewModel(
                 }
             }
 
-            ExploreMode.SEARCH -> Unit
+            ExploreMode.CACHED, ExploreMode.SEARCH -> Unit
         }
     }
 
@@ -776,6 +897,74 @@ class ExploreViewModel(
         }
     }
 
+    private fun loadCached(
+        page: Int,
+        append: Boolean,
+    ) {
+        val platform = _uiState.value.selectedPlatform
+        val pageSize = _uiState.value.cachedPageSize.coerceAtLeast(1)
+        cachedJob?.cancel()
+        cachedJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoadingCached = !append,
+                    isLoadingMoreCached = append,
+                    cachedError = null,
+                )
+            }
+            try {
+                val response = exploreRepository.getCachedNovels(
+                    platform = platform,
+                    page = page,
+                    pageSize = pageSize,
+                )
+                val mappedItems = response.items.map { it.toExploreNovelItem(fallbackPlatform = platform) }
+                _uiState.update { state ->
+                    val merged = if (append) {
+                        val seenIds = state.cachedItems.mapTo(HashSet()) { it.id }
+                        state.cachedItems + mappedItems.filter { seenIds.add(it.id) }
+                    } else {
+                        val seenIds = HashSet<String>()
+                        mappedItems.filter { seenIds.add(it.id) }
+                    }
+                    val effectivePageSize = response.pageSize.coerceAtLeast(1)
+                    val effectivePage = response.page.coerceAtLeast(1)
+                    val hasNext = response.items.isNotEmpty() &&
+                        merged.size < response.total &&
+                        (effectivePage * effectivePageSize) < response.total
+                    state.copy(
+                        cachedItems = merged,
+                        cachedTotal = response.total,
+                        cachedPage = effectivePage,
+                        cachedPageSize = effectivePageSize,
+                        cachedHasNextPage = hasNext,
+                        isLoadingCached = false,
+                        isLoadingMoreCached = false,
+                        cachedError = null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                val errorState = mapError(e, "加载服务器缓存书库失败")
+                _uiState.update {
+                    it.copy(
+                        isLoadingCached = false,
+                        isLoadingMoreCached = false,
+                        cachedError = errorState,
+                    )
+                }
+                startErrorRetryCountdownIfNeeded(errorState) { remaining ->
+                    _uiState.update { state ->
+                        state.copy(
+                            cachedError = state.cachedError?.copy(retryAfterSeconds = remaining),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private fun executeSearch(keyword: String) {
         val platform = _uiState.value.selectedPlatform
         searchJob?.cancel()
@@ -868,6 +1057,7 @@ class ExploreViewModel(
         homeJob?.cancel()
         rankingsJob?.cancel()
         catalogJob?.cancel()
+        cachedJob?.cancel()
         searchJob?.cancel()
         retryCountdownJob?.cancel()
     }
@@ -968,5 +1158,16 @@ class ExploreViewModel(
                 }
             }
         }
+    }
+
+    companion object {
+        internal fun createForTest(
+            exploreRepository: ExploreRepository,
+            configFlow: Flow<ServerConfig>,
+        ): ExploreViewModel = ExploreViewModel(
+            exploreRepository = exploreRepository,
+            configFlow = configFlow,
+            marker = Unit,
+        )
     }
 }

@@ -125,6 +125,7 @@ fun ExploreScreen(
                                 ExploreMode.HOME -> "首页"
                                 ExploreMode.RANKINGS -> "榜单"
                                 ExploreMode.CATALOG -> "分类"
+                                ExploreMode.CACHED -> "服务器缓存"
                                 ExploreMode.SEARCH -> "搜索"
                             },
                         )
@@ -195,7 +196,7 @@ fun ExploreScreen(
                         onOpenNovel = onOpenNovel,
                     )
 
-                    ExploreMode.SEARCH -> Unit
+                    ExploreMode.CACHED, ExploreMode.SEARCH -> Unit
                 }
             }
         }
