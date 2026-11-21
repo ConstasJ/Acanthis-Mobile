@@ -28,4 +28,4 @@ dependencyResolutionManagement {
     }
 }
 
-include(":composeApp", ":androidApp")
+include(":composeApp", ":androidApp", ":desktopApp")
