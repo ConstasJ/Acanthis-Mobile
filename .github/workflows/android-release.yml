@@ -105,7 +105,14 @@ jobs:
             echo "::error::Missing required Android signing secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)."
             exit 1
           fi
-          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/acanthis-release.p12"
+          printf '%s\n' "${ANDROID_KEYSTORE_BASE64}" \
+            | sed '1s/^\xef\xbb\xbf//; /^[[:space:]]*-----/d' \
+            | tr -d '\r\n\t ' \
+            | base64 --decode > "${RUNNER_TEMP}/acanthis-release.p12"
+          if [[ ! -s "${RUNNER_TEMP}/acanthis-release.p12" ]]; then
+            echo "::error::Decoded Android signing keystore is empty. Please verify ANDROID_KEYSTORE_BASE64."
+            exit 1
+          fi
 
       - name: Run unit tests and assemble signed Release APKs
         env:
