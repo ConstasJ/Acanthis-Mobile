@@ -93,14 +93,13 @@ fun ExploreScreen(
         )
 
         // Multi-source selector (visible when multiple sources exist)
-        val exploreSources = uiState.sources.filter { "explore" in it.capabilities || it.id == uiState.selectedPlatform }
-        if (exploreSources.size > 1) {
+        if (uiState.sources.size > 1) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(bottom = 6.dp),
             ) {
-                items(exploreSources, key = { it.id }) { source ->
+                items(uiState.sources, key = { it.id }) { source ->
                     FilterChip(
                         selected = source.id == uiState.selectedPlatform,
                         onClick = { viewModel.selectPlatform(source.id) },
@@ -110,27 +109,29 @@ fun ExploreScreen(
             }
         }
 
-        // Browse tabs (Home / Rankings / Catalog)
+        // Browse tabs (Home / Rankings / Catalog / Cached)
         val browseModes = uiState.availableBrowseModes
-        val selectedTabIndex = browseModes.indexOf(uiState.activeBrowseMode).coerceAtLeast(0)
-        SecondaryTabRow(selectedTabIndex = selectedTabIndex) {
-            browseModes.forEach { tab ->
-                val isSelected = uiState.mode != ExploreMode.SEARCH && uiState.activeBrowseMode == tab
-                Tab(
-                    selected = isSelected,
-                    onClick = { viewModel.selectBrowseTab(tab) },
-                    text = {
-                        Text(
-                            text = when (tab) {
-                                ExploreMode.HOME -> "首页"
-                                ExploreMode.RANKINGS -> "榜单"
-                                ExploreMode.CATALOG -> "分类"
-                                ExploreMode.CACHED -> "服务器缓存"
-                                ExploreMode.SEARCH -> "搜索"
-                            },
-                        )
-                    },
-                )
+        if (browseModes.size > 1) {
+            val selectedTabIndex = browseModes.indexOf(uiState.activeBrowseMode).coerceAtLeast(0)
+            SecondaryTabRow(selectedTabIndex = selectedTabIndex) {
+                browseModes.forEach { tab ->
+                    val isSelected = uiState.mode != ExploreMode.SEARCH && uiState.activeBrowseMode == tab
+                    Tab(
+                        selected = isSelected,
+                        onClick = { viewModel.selectBrowseTab(tab) },
+                        text = {
+                            Text(
+                                text = when (tab) {
+                                    ExploreMode.HOME -> "首页"
+                                    ExploreMode.RANKINGS -> "榜单"
+                                    ExploreMode.CATALOG -> "分类"
+                                    ExploreMode.CACHED -> "服务器缓存"
+                                    ExploreMode.SEARCH -> "搜索"
+                                },
+                            )
+                        },
+                    )
+                }
             }
         }
 
@@ -152,6 +153,15 @@ fun ExploreScreen(
                 )
             }
 
+            uiState.mode == ExploreMode.CACHED -> {
+                ExploreCachedContent(
+                    uiState = uiState,
+                    onRefresh = viewModel::refreshCurrentTab,
+                    onLoadMore = viewModel::loadNextCachedPage,
+                    onOpenNovel = onOpenNovel,
+                )
+            }
+
             uiState.isLoadingSchema && uiState.schema == null -> {
                 CenteredLoadingState(message = "正在获取书源发现配置…")
             }
@@ -163,6 +173,8 @@ fun ExploreScreen(
                         ExploreErrorCard(
                             error = schemaError,
                             onRetry = viewModel::retryBootstrap,
+                            secondaryActionLabel = "查看服务器缓存",
+                            onSecondaryAction = { viewModel.selectBrowseTab(ExploreMode.CACHED) },
                         )
                     }
                 }
@@ -765,6 +777,146 @@ private fun ExploreCatalogContent(
                         hasNextPage = uiState.catalogHasNextPage,
                         currentPage = uiState.catalogPage,
                         totalPages = uiState.catalogTotalPages,
+                        onLoadMore = onLoadMore,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExploreCachedContent(
+    uiState: ExploreUiState,
+    onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
+    onOpenNovel: (String, String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+
+    val shouldTriggerLoadMore by remember(
+        uiState.cachedHasNextPage,
+        uiState.isLoadingCached,
+        uiState.isLoadingMoreCached,
+        uiState.cachedItems.size,
+    ) {
+        derivedStateOf {
+            val total = listState.layoutInfo.totalItemsCount
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            uiState.cachedHasNextPage &&
+                !uiState.isLoadingCached &&
+                !uiState.isLoadingMoreCached &&
+                uiState.cachedItems.isNotEmpty() &&
+                total > 0 &&
+                lastVisible >= total - 3
+        }
+    }
+    LaunchedEffect(shouldTriggerLoadMore) {
+        if (shouldTriggerLoadMore) {
+            onLoadMore()
+        }
+    }
+
+    PullToRefreshBox(
+        isRefreshing = uiState.isLoadingCached && uiState.cachedItems.isNotEmpty(),
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item(key = "cached-header") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 8.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "服务器缓存 · 共 ${uiState.cachedTotal} 部",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    IconButton(
+                        onClick = onRefresh,
+                        enabled = !uiState.isLoadingCached,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "刷新服务器缓存",
+                        )
+                    }
+                }
+            }
+
+            if (uiState.isLoadingCached && uiState.cachedItems.isEmpty()) {
+                item(key = "cached-loading") {
+                    CenteredLoadingState(
+                        message = "正在加载服务器缓存…",
+                        modifier = Modifier.fillParentMaxHeight(0.5f),
+                    )
+                }
+            } else if (uiState.cachedError != null && uiState.cachedItems.isEmpty()) {
+                item(key = "cached-error") {
+                    ExploreErrorCard(
+                        error = uiState.cachedError,
+                        onRetry = onRefresh,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            } else if (uiState.cachedItems.isEmpty()) {
+                item(key = "cached-empty") {
+                    EmptyExploreState(
+                        message = "当前书源暂无服务器已缓存作品，可尝试上方搜索。",
+                        onRefresh = onRefresh,
+                    )
+                }
+            } else {
+                val rows = uiState.cachedItems.chunked(3)
+                itemsIndexed(
+                    items = rows,
+                    key = { rowIdx, _ -> "cached-row:$rowIdx" },
+                ) { _, rowItems ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        rowItems.forEach { novel ->
+                            ExploreGridNovelCard(
+                                item = novel,
+                                onClick = { onOpenNovel(novel.platform, novel.id) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(3 - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                uiState.cachedError?.let { error ->
+                    item(key = "cached-more-error") {
+                        ExploreErrorCard(
+                            error = error,
+                            onRetry = onLoadMore,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+                }
+
+                item(key = "cached-footer") {
+                    PaginationFooter(
+                        isLoadingMore = uiState.isLoadingMoreCached,
+                        hasNextPage = uiState.cachedHasNextPage,
+                        currentPage = uiState.cachedPage,
+                        totalPages = uiState.cachedTotalPages,
                         onLoadMore = onLoadMore,
                     )
                 }

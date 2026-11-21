@@ -465,6 +465,8 @@ internal fun ExploreErrorCard(
     error: ExploreErrorState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
 ) {
     val containerColor = if (error.isChallengeBlocked || error.statusCode == 503) {
         MaterialTheme.colorScheme.tertiaryContainer
@@ -541,8 +543,14 @@ internal fun ExploreErrorCard(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (!secondaryActionLabel.isNullOrBlank() && onSecondaryAction != null) {
+                    OutlinedButton(onClick = onSecondaryAction) {
+                        Text(text = secondaryActionLabel)
+                    }
+                }
                 Button(onClick = onRetry) {
                     Icon(
                         imageVector = Icons.Rounded.Refresh,
