@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -32,6 +33,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.compose.setSingletonImageLoaderFactory
 import io.acanthis.app.app.navigation.BookshelfRoute
 import io.acanthis.app.app.navigation.ExploreRoute
+import io.acanthis.app.app.navigation.HistoryRoute
 import io.acanthis.app.app.navigation.NovelDetailRoute
 import io.acanthis.app.app.navigation.ReaderRoute
 import io.acanthis.app.app.navigation.SettingsRoute
@@ -43,6 +45,7 @@ import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.feature.bookshelf.BookshelfScreen
 import io.acanthis.app.feature.detail.NovelDetailScreen
 import io.acanthis.app.feature.explore.ExploreScreen
+import io.acanthis.app.feature.history.HistoryScreen
 import io.acanthis.app.feature.reader.ReaderScreen
 import io.acanthis.app.feature.settings.SettingsScreen
 import org.koin.compose.koinInject
@@ -53,6 +56,7 @@ private enum class TopLevelTab(
     val route: Any,
 ) {
     Bookshelf("书架", Icons.AutoMirrored.Rounded.MenuBook, BookshelfRoute),
+    History("历史", Icons.Rounded.History, HistoryRoute),
     Explore("发现", Icons.Rounded.Explore, ExploreRoute),
     Settings("设置", Icons.Rounded.Settings, SettingsRoute),
 }
@@ -60,6 +64,7 @@ private enum class TopLevelTab(
 private fun NavDestination.matchesTab(tab: TopLevelTab): Boolean {
     return when (tab) {
         TopLevelTab.Bookshelf -> hasRoute<BookshelfRoute>()
+        TopLevelTab.History -> hasRoute<HistoryRoute>()
         TopLevelTab.Explore -> hasRoute<ExploreRoute>()
         TopLevelTab.Settings -> hasRoute<SettingsRoute>()
     }
@@ -155,6 +160,26 @@ fun AcanthisApp(
                                 )
                             },
                             onOpenSettings = { navigateToTab(TopLevelTab.Settings) },
+                        )
+                    }
+
+                    composable<HistoryRoute> {
+                        HistoryScreen(
+                            onOpenNovel = { platform, novelId ->
+                                navController.navigate(
+                                    NovelDetailRoute(platform = platform, novelId = novelId),
+                                )
+                            },
+                            onContinueReading = { platform, novelId, chapterId ->
+                                navController.navigate(
+                                    ReaderRoute(
+                                        platform = platform,
+                                        novelId = novelId,
+                                        chapterId = chapterId,
+                                    ),
+                                )
+                            },
+                            onOpenExplore = { navigateToTab(TopLevelTab.Explore) },
                         )
                     }
 
