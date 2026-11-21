@@ -7,6 +7,7 @@ import io.acanthis.app.core.network.ExplorePageDto
 import io.acanthis.app.core.network.ExploreSchemaDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
+import io.acanthis.app.core.network.PaginatedNovelsResponseDto
 import io.acanthis.app.core.network.rebaseMediaUrlWithBase
 import io.acanthis.app.core.network.stripTrailingV1Prefix
 import io.acanthis.app.core.platform.currentTimeMillis
@@ -176,6 +177,31 @@ class ExploreRepository(
         }
     }
 
+    suspend fun getCachedNovels(
+        platform: String,
+        page: Int = 1,
+        pageSize: Int = DEFAULT_CACHED_PAGE_SIZE,
+    ): PaginatedNovelsResponseDto {
+        val cleanPlatform = platform.trim()
+        require(cleanPlatform.isNotEmpty()) { "平台标识不能为空" }
+        val (baseUrl, authToken) = resolveServerTarget()
+        val response = api.fetchCachedNovels(
+            baseUrl = baseUrl,
+            authToken = authToken,
+            platform = cleanPlatform,
+            page = page,
+            pageSize = pageSize,
+        )
+        return response.copy(
+            items = response.items.map { item ->
+                item.copy(
+                    platform = item.platform.ifBlank { cleanPlatform },
+                    coverUrl = item.coverUrl?.let { rebaseMediaUrlWithBase(it, baseUrl) },
+                )
+            },
+        )
+    }
+
     private suspend fun resolveServerTarget(): Pair<String, String?> {
         val config = configProvider()
         val baseUrl = stripTrailingV1Prefix(config.apiBaseUrl)
@@ -198,5 +224,6 @@ class ExploreRepository(
 
     companion object {
         const val DEFAULT_SEARCH_COOLDOWN_MS = 5_000L
+        const val DEFAULT_CACHED_PAGE_SIZE = 20
     }
 }

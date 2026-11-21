@@ -9,6 +9,7 @@ import io.acanthis.app.core.network.ExploreSchemaDto
 import io.acanthis.app.core.network.ExploreSectionDto
 import io.acanthis.app.core.network.HealthResponse
 import io.acanthis.app.core.network.NovelDto
+import io.acanthis.app.core.network.NovelInfoDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
 import io.acanthis.app.core.network.PaginatedNovelsResponseDto
@@ -27,6 +28,9 @@ class ExploreRepositoryTest {
         var schemaCalls = 0
         var searchCalls = 0
         var lastSchemaBaseUrl: String? = null
+        var lastCachedPlatform: String? = null
+        var lastCachedPage: Int? = null
+        var lastCachedPageSize: Int? = null
 
         override suspend fun fetchExploreSchema(
             baseUrl: String,
@@ -151,7 +155,30 @@ class ExploreRepositoryTest {
             platform: String,
             page: Int,
             pageSize: Int,
-        ): PaginatedNovelsResponseDto = PaginatedNovelsResponseDto(page = page, pageSize = pageSize)
+        ): PaginatedNovelsResponseDto {
+            lastCachedPlatform = platform
+            lastCachedPage = page
+            lastCachedPageSize = pageSize
+            return PaginatedNovelsResponseDto(
+                items = listOf(
+                    NovelInfoDto(
+                        id = "301",
+                        platform = "",
+                        title = "缓存作品一",
+                        coverUrl = "/v1/linovelib/cover/novel/301",
+                    ),
+                    NovelInfoDto(
+                        id = "302",
+                        platform = platform,
+                        title = "缓存作品二",
+                        coverUrl = "http://old-host:5301/v1/linovelib/cover/novel/302",
+                    ),
+                ),
+                total = 2,
+                page = page,
+                pageSize = pageSize,
+            )
+        }
 
         override suspend fun fetchChapterContent(
             baseUrl: String,
@@ -270,5 +297,46 @@ class ExploreRepositoryTest {
             "https://new-acanthis.example.com/v1/linovelib/cover/novel/102",
             switchedResults[1].coverUrl,
         )
+    }
+
+    @Test
+    fun getCachedNovelsRebasesRelativeAndForeignHostCoverUrls() = runTest {
+        val api = FakeExploreApi()
+        val repo = ExploreRepository(
+            api = api,
+            configProvider = {
+                ServerConfig(
+                    apiBaseUrl = "https://new-host.example/v1/",
+                    authToken = "tok",
+                    deviceLabel = "test-device",
+                )
+            },
+        )
+
+        val page = repo.getCachedNovels(platform = " linovelib ", page = 2, pageSize = 20)
+
+        assertEquals("linovelib", api.lastCachedPlatform)
+        assertEquals(2, api.lastCachedPage)
+        assertEquals(20, api.lastCachedPageSize)
+        assertEquals(2, page.items.size)
+        assertEquals("linovelib", page.items[0].platform)
+        assertEquals("https://new-host.example/v1/linovelib/cover/novel/301", page.items[0].coverUrl)
+        assertEquals("https://new-host.example/v1/linovelib/cover/novel/302", page.items[1].coverUrl)
+    }
+
+    @Test
+    fun getCachedNovelsRejectsBlankPlatform() = runTest {
+        val repo = ExploreRepository(
+            api = FakeExploreApi(),
+            configProvider = {
+                ServerConfig(
+                    apiBaseUrl = "https://api.example.com",
+                    deviceLabel = "test-device",
+                )
+            },
+        )
+        assertFailsWith<IllegalArgumentException> {
+            repo.getCachedNovels(platform = "   ")
+        }
     }
 }
