@@ -3,8 +3,6 @@ package io.acanthis.app.feature.bookshelf
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +23,6 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.acanthis.app.core.database.BookshelfCategoryEntity
+import io.acanthis.app.core.ui.SearchableMultiSelectDialog
+import io.acanthis.app.core.ui.SelectableOption
 import io.acanthis.app.data.LibraryRepository
 
 @Composable
@@ -268,6 +267,9 @@ fun ShelfAssignDialog(
     onDismiss: () -> Unit,
     onCreateCategory: (name: String, onError: (String) -> Unit) -> Unit,
     onConfirm: (selectedCategoryIds: List<String>) -> Unit,
+    dialogTitle: String = "管理所属书架",
+    subtitleText: String = "《$novelTitle》",
+    confirmLabel: String = "保存",
 ) {
     var selectedIds by remember(initialCategoryIds) { mutableStateOf(initialCategoryIds.toSet()) }
     var quickCreateName by remember { mutableStateOf("") }
@@ -277,7 +279,7 @@ fun ShelfAssignDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "管理所属书架",
+                text = dialogTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -287,12 +289,14 @@ fun ShelfAssignDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = "《$novelTitle》",
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (subtitleText.isNotBlank()) {
+                    Text(
+                        text = subtitleText,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = "不勾选任何自定义书架时，书籍会保留在「默认」中。",
                     style = MaterialTheme.typography.bodySmall,
@@ -397,7 +401,7 @@ fun ShelfAssignDialog(
                     onConfirm(selectedIds.filter { it in activeIds })
                 },
             ) {
-                Text("保存")
+                Text(confirmLabel)
             }
         },
         dismissButton = {
@@ -408,7 +412,6 @@ fun ShelfAssignDialog(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GenreFilterDialog(
     availableGenres: List<GenreCountItem>,
@@ -416,56 +419,22 @@ fun GenreFilterDialog(
     onDismiss: () -> Unit,
     onConfirm: (Set<String>) -> Unit,
 ) {
-    var draft by remember(selectedGenres) { mutableStateOf(selectedGenres) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("按题材标签筛选（多选交集）") },
-        text = {
-            if (availableGenres.isEmpty()) {
-                Text(
-                    text = "当前书架暂无可用题材标签，下拉同步后将自动补全作品标签。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    SearchableMultiSelectDialog(
+        title = "按题材标签筛选（多选交集）",
+        options = remember(availableGenres) {
+            availableGenres.map { genre ->
+                SelectableOption(
+                    value = genre.name,
+                    label = genre.name,
+                    count = genre.count,
                 )
-            } else {
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 280.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    availableGenres.forEach { genre ->
-                        val selected = genre.name in draft
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                draft = if (selected) draft - genre.name else draft + genre.name
-                            },
-                            label = { Text("${genre.name} (${genre.count})") },
-                        )
-                    }
-                }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(draft) }) {
-                Text("应用")
-            }
-        },
-        dismissButton = {
-            Row {
-                if (draft.isNotEmpty()) {
-                    TextButton(onClick = { draft = emptySet() }) {
-                        Text("清空")
-                    }
-                }
-                TextButton(onClick = onDismiss) {
-                    Text("取消")
-                }
-            }
-        },
+        selectedValues = selectedGenres,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+        searchPlaceholder = "搜索题材标签…",
+        emptyMessage = "当前书架暂无可用题材标签，下拉同步后将自动补全作品标签。",
+        confirmLabel = "应用",
     )
 }
