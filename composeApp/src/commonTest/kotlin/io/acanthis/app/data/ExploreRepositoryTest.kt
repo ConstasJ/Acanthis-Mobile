@@ -11,6 +11,7 @@ import io.acanthis.app.core.network.HealthResponse
 import io.acanthis.app.core.network.NovelDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
+import io.acanthis.app.core.network.PaginatedNovelsResponseDto
 import io.acanthis.app.core.network.SyncStatePullResponseDto
 import io.acanthis.app.core.network.SyncStatePushPayloadDto
 import io.acanthis.app.core.network.SyncStatePushResponseDto
@@ -143,6 +144,14 @@ class ExploreRepositoryTest {
             platform: String,
             novelId: String,
         ): NovelDto = error("Not used")
+
+        override suspend fun fetchCachedNovels(
+            baseUrl: String,
+            authToken: String?,
+            platform: String,
+            page: Int,
+            pageSize: Int,
+        ): PaginatedNovelsResponseDto = PaginatedNovelsResponseDto(page = page, pageSize = pageSize)
 
         override suspend fun fetchChapterContent(
             baseUrl: String,

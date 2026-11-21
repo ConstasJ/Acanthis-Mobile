@@ -12,6 +12,7 @@ import io.acanthis.app.core.network.HealthResponse
 import io.acanthis.app.core.network.NovelDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
+import io.acanthis.app.core.network.PaginatedNovelsResponseDto
 import io.acanthis.app.core.network.SyncStatePullResponseDto
 import io.acanthis.app.core.network.SyncStatePushPayloadDto
 import io.acanthis.app.core.network.SyncStatePushResponseDto
@@ -136,6 +137,7 @@ class ReaderRepositoryTest {
         override suspend fun fetchRankings(baseUrl: String, authToken: String?, platform: String, rank: String, full: Boolean, page: Int): ExplorePageDto = error("Not used")
         override suspend fun fetchCatalog(baseUrl: String, authToken: String?, platform: String, filters: Map<String, String>, page: Int): ExplorePageDto = error("Not used")
         override suspend fun searchNovels(baseUrl: String, authToken: String?, platform: String, keyword: String): List<NovelSearchResultDto> = error("Not used")
+        override suspend fun fetchCachedNovels(baseUrl: String, authToken: String?, platform: String, page: Int, pageSize: Int): PaginatedNovelsResponseDto = error("Not used")
         override suspend fun pullSyncState(baseUrl: String, authToken: String?, since: Long?): SyncStatePullResponseDto = error("Not used")
         override suspend fun pushSyncState(baseUrl: String, authToken: String?, payload: SyncStatePushPayloadDto): SyncStatePushResponseDto = error("Not used")
     }

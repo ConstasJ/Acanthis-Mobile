@@ -13,6 +13,7 @@ import io.acanthis.app.core.network.HealthResponse
 import io.acanthis.app.core.network.NovelDto
 import io.acanthis.app.core.network.NovelSearchResultDto
 import io.acanthis.app.core.network.NovelSourceDescriptor
+import io.acanthis.app.core.network.PaginatedNovelsResponseDto
 import io.acanthis.app.core.network.ReadingProgressDto
 import io.acanthis.app.core.network.SyncStatePullResponseDto
 import io.acanthis.app.core.network.SyncStatePushPayloadDto
@@ -646,6 +647,14 @@ private class FakeAcanthisApi(
         platform: String,
         keyword: String,
     ): List<NovelSearchResultDto> = error("Unused in SyncCoordinatorTest")
+
+    override suspend fun fetchCachedNovels(
+        baseUrl: String,
+        authToken: String?,
+        platform: String,
+        page: Int,
+        pageSize: Int,
+    ): PaginatedNovelsResponseDto = error("Unused in SyncCoordinatorTest")
 
     override suspend fun fetchNovelDetail(
         baseUrl: String,

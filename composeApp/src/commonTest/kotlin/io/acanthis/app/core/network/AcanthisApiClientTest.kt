@@ -603,4 +603,79 @@ class AcanthisApiClientTest {
         assertEquals("Unauthorized", unauthorizedException.message)
         assertNull(unauthorizedException.retryAfterSeconds)
     }
+
+    @Test
+    fun fetchCachedNovelsSendsPaginationParamsAndParsesEnvelope() = runTest {
+        var capturedRequest: HttpRequestData? = null
+        val client = createClient { request ->
+            capturedRequest = request
+            respondJson(
+                """
+                {
+                  "code": 0,
+                  "message": "Success",
+                  "data": {
+                    "items": [
+                      {
+                        "id": "3001",
+                        "platform": "linovelib",
+                        "title": "狼与香辛料",
+                        "coverUrl": "/v1/linovelib/cover/novel/3001",
+                        "author": "支仓冻砂",
+                        "summary": "行商与贤狼",
+                        "status": "completed",
+                        "genres": ["奇幻", "日常"]
+                      }
+                    ],
+                    "total": 42,
+                    "page": 2,
+                    "pageSize": 20
+                  }
+                }
+                """.trimIndent(),
+            )
+        }
+
+        val result = client.fetchCachedNovels(
+            baseUrl = "https://api.example.com/v1/",
+            authToken = "secret-token",
+            platform = "linovelib",
+            page = 2,
+            pageSize = 20,
+        )
+
+        val req = assertNotNull(capturedRequest)
+        assertEquals("/v1/linovelib/novels", req.url.encodedPath)
+        assertEquals("2", req.url.parameters["page"])
+        assertEquals("20", req.url.parameters["pageSize"])
+        assertEquals("Bearer secret-token", req.headers[HttpHeaders.Authorization])
+        assertEquals(42, result.total)
+        assertEquals(2, result.page)
+        assertEquals(20, result.pageSize)
+        assertEquals(1, result.items.size)
+        assertEquals("3001", result.items.first().id)
+        assertEquals("completed", result.items.first().status)
+    }
+
+    @Test
+    fun fetchCachedNovelsClampsNonPositivePageAndPageSize() = runTest {
+        var capturedRequest: HttpRequestData? = null
+        val client = createClient { request ->
+            capturedRequest = request
+            respondJson("""{"code":0,"message":"Success","data":{"items":[],"total":0,"page":1,"pageSize":1}}""")
+        }
+
+        client.fetchCachedNovels(
+            baseUrl = "https://api.example.com",
+            authToken = null,
+            platform = "linovelib",
+            page = 0,
+            pageSize = -5,
+        )
+
+        val req = assertNotNull(capturedRequest)
+        assertEquals("1", req.url.parameters["page"])
+        assertEquals("1", req.url.parameters["pageSize"])
+        assertNull(req.headers[HttpHeaders.Authorization])
+    }
 }

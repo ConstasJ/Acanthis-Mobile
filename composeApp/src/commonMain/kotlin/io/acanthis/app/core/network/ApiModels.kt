@@ -136,6 +136,38 @@ data class NovelSearchResultDto(
 )
 
 @Serializable
+data class NovelInfoDto(
+    val id: String,
+    val platform: String = "",
+    val title: String,
+    val coverUrl: String? = null,
+    val author: String = "",
+    val summary: String = "",
+    val status: String = "unknown",
+    val genres: List<String> = emptyList(),
+)
+
+fun NovelInfoDto.toExploreNovelItem(fallbackPlatform: String): ExploreNovelItemDto =
+    ExploreNovelItemDto(
+        id = id,
+        platform = platform.ifBlank { fallbackPlatform },
+        title = title,
+        coverUrl = coverUrl,
+        author = author.takeIf { it.isNotBlank() },
+        summary = summary.takeIf { it.isNotBlank() },
+        status = status.takeIf { it.isNotBlank() },
+        genres = genres,
+    )
+
+@Serializable
+data class PaginatedNovelsResponseDto(
+    val items: List<NovelInfoDto> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    val pageSize: Int = 20,
+)
+
+@Serializable
 data class ChapterDto(
     val id: String,
     val platform: String? = null,

@@ -63,6 +63,14 @@ interface AcanthisApi {
         keyword: String,
     ): List<NovelSearchResultDto>
 
+    suspend fun fetchCachedNovels(
+        baseUrl: String,
+        authToken: String?,
+        platform: String,
+        page: Int = 1,
+        pageSize: Int = 20,
+    ): PaginatedNovelsResponseDto
+
     suspend fun fetchNovelDetail(
         baseUrl: String,
         authToken: String?,
@@ -214,6 +222,25 @@ class AcanthisApiClient(
             fallbackErrorMessage = "搜索小说失败",
         ) {
             parameter("keyword", cleanKeyword)
+        }
+    }
+
+    override suspend fun fetchCachedNovels(
+        baseUrl: String,
+        authToken: String?,
+        platform: String,
+        page: Int,
+        pageSize: Int,
+    ): PaginatedNovelsResponseDto {
+        val encodedPlatform = requireEncodedPathPart(platform, "平台标识不能为空")
+        return requestEnvelope(
+            baseUrl = baseUrl,
+            path = "/v1/$encodedPlatform/novels",
+            authToken = authToken,
+            fallbackErrorMessage = "获取服务器缓存书库失败",
+        ) {
+            parameter("page", page.coerceAtLeast(1).toString())
+            parameter("pageSize", pageSize.coerceAtLeast(1).toString())
         }
     }
 
