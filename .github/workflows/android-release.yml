@@ -1,0 +1,191 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (SemVer, e.g. 0.1.0 or 0.1.0-beta.1)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version metadata
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            RAW_TAG="${GITHUB_REF_NAME}"
+          else
+            CLEAN_INPUT="${INPUT_VERSION#v}"
+            RAW_TAG="v${CLEAN_INPUT}"
+          fi
+
+          VERSION_NAME="${RAW_TAG#v}"
+          if [[ ! "${VERSION_NAME}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-zA-Z0-9.-]+))?$ ]]; then
+            echo "::error::Invalid SemVer version '${VERSION_NAME}'. Expected format: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          PRE_SUFFIX="${BASH_REMATCH[5]:-}"
+
+          if [[ -n "${PRE_SUFFIX}" ]]; then
+            PRE_NUM=1
+            if [[ "${PRE_SUFFIX}" =~ ([0-9]+)$ ]]; then
+              PRE_NUM="${BASH_REMATCH[1]}"
+            fi
+            if (( PRE_NUM < 1 )); then PRE_NUM=1; fi
+            if (( PRE_NUM > 98 )); then PRE_NUM=98; fi
+            IS_PRERELEASE="true"
+          else
+            PRE_NUM=99
+            if [[ "${INPUT_PRERELEASE}" == "true" ]]; then
+              IS_PRERELEASE="true"
+            else
+              IS_PRERELEASE="false"
+            fi
+          fi
+
+          VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + PRE_NUM ))
+
+          echo "tag=${RAW_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved release: tag=${RAW_TAG}, versionName=${VERSION_NAME}, versionCode=${VERSION_CODE}, prerelease=${IS_PRERELEASE}"
+
+      - name: Set up JDK 21 (Zulu)
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode Android signing keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" || -z "${ANDROID_KEY_PASSWORD}" ]]; then
+            echo "::error::Missing required Android signing secrets (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD)."
+            exit 1
+          fi
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/acanthis-release.p12"
+
+      - name: Run unit tests and assemble signed Release APKs
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/acanthis-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :composeApp:testAndroidHostTest :androidApp:assembleRelease \
+            -PenableAbiSplits=true \
+            -PversionName="${{ steps.version.outputs.version_name }}" \
+            -PversionCode="${{ steps.version.outputs.version_code }}" \
+            --stacktrace
+
+      - name: Clean up temporary keystore
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/acanthis-release.p12"
+
+      - name: Collect Release APKs and generate SHA256SUMS
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          OUT_DIR="${RUNNER_TEMP}/release-assets"
+          APK_DIR="androidApp/build/outputs/apk/release"
+          mkdir -p "${OUT_DIR}"
+
+          for ABI in universal arm64-v8a armeabi-v7a x86_64; do
+            SRC="${APK_DIR}/androidApp-${ABI}-release.apk"
+            if [[ ! -f "${SRC}" ]]; then
+              echo "::error::Expected APK not found: ${SRC}"
+              ls -la "${APK_DIR}"
+              exit 1
+            fi
+            cp "${SRC}" "${OUT_DIR}/acanthis-v${VERSION_NAME}-${ABI}.apk"
+          done
+
+          cd "${OUT_DIR}"
+          sha256sum acanthis-v*.apk > SHA256SUMS.txt
+          ls -lh
+          cat SHA256SUMS.txt
+
+      - name: Upload Release APKs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acanthis-v${{ steps.version.outputs.version_name }}-release-apks
+          path: ${{ runner.temp }}/release-assets/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          ASSETS=(
+            "${RUNNER_TEMP}/release-assets/acanthis-${TAG}-universal.apk"
+            "${RUNNER_TEMP}/release-assets/acanthis-${TAG}-arm64-v8a.apk"
+            "${RUNNER_TEMP}/release-assets/acanthis-${TAG}-armeabi-v7a.apk"
+            "${RUNNER_TEMP}/release-assets/acanthis-${TAG}-x86_64.apk"
+            "${RUNNER_TEMP}/release-assets/SHA256SUMS.txt"
+          )
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          else
+            ARGS=(
+              "${TAG}"
+              "${ASSETS[@]}"
+              --title "Acanthis Mobile ${TAG}"
+              --generate-notes
+              --target "${GITHUB_SHA}"
+            )
+            if [[ "${IS_PRERELEASE}" == "true" ]]; then
+              ARGS+=(--prerelease)
+            fi
+            gh release create "${ARGS[@]}"
+          fi
