@@ -17,26 +17,40 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,17 +79,63 @@ fun BookshelfScreen(
     onOpenNovel: (platform: String, novelId: String) -> Unit,
     onContinueReading: (platform: String, novelId: String, chapterId: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onExploreCachedGenre: (genre: String) -> Unit = {},
     viewModel: BookshelfViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var actionTarget by remember { mutableStateOf<BookshelfCardItem?>(null) }
+    var assignTarget by remember { mutableStateOf<BookshelfCardItem?>(null) }
     var pendingRemoval by remember { mutableStateOf<BookshelfCardItem?>(null) }
     var showSyncErrorDialog by remember { mutableStateOf(false) }
+    var showShelfManager by remember { mutableStateOf(false) }
+    var showGenreDialog by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             windowInsets = WindowInsets(0, 0, 0, 0),
             title = { Text("书架") },
             actions = {
+                IconButton(onClick = {
+                    showSearchBar = !showSearchBar
+                    if (!showSearchBar && uiState.searchQuery.isNotEmpty()) {
+                        viewModel.onSearchQueryChange("")
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "搜索书架",
+                    )
+                }
+
+                Box {
+                    IconButton(onClick = { showSortMenu = true }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Sort,
+                            contentDescription = "排序",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        BookshelfSortOption.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (uiState.sortOption == option) "✓ ${option.label}" else option.label,
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.selectSortOption(option)
+                                    showSortMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+
                 when (uiState.syncState.status) {
                     SyncStatus.SYNCING -> {
                         Box(
@@ -114,6 +174,135 @@ fun BookshelfScreen(
             },
         )
 
+        // 书架切换条（全部 / 默认 / 自定义书架 / 管理）
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(
+                items = uiState.tabs,
+                key = {
+                    when (val t = it.tab) {
+                        BookshelfTab.All -> "tab:all"
+                        BookshelfTab.Default -> "tab:default"
+                        is BookshelfTab.Category -> "tab:cat:${t.id}"
+                    }
+                },
+            ) { tabItem ->
+                FilterChip(
+                    selected = uiState.selectedTab == tabItem.tab,
+                    onClick = { viewModel.selectTab(tabItem.tab) },
+                    label = { Text("${tabItem.label} (${tabItem.count})") },
+                )
+            }
+            item(key = "tab:manage") {
+                AssistChip(
+                    onClick = { showShelfManager = true },
+                    label = { Text("管理") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                )
+            }
+        }
+
+        if (showSearchBar || uiState.searchQuery.isNotEmpty()) {
+            OutlinedTextField(
+                value = uiState.searchQuery,
+                onValueChange = viewModel::onSearchQueryChange,
+                placeholder = { Text("按书名或作者筛选…") },
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                leadingIcon = {
+                    Icon(Icons.Rounded.Search, contentDescription = null)
+                },
+                trailingIcon = {
+                    if (uiState.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "清空搜索")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        // 筛选工具条（标签多选按钮 + 连载状态）
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            item(key = "filter:genres") {
+                FilterChip(
+                    selected = uiState.selectedGenres.isNotEmpty(),
+                    onClick = { showGenreDialog = true },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.FilterList,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    label = {
+                        val countSuffix = if (uiState.selectedGenres.isNotEmpty()) {
+                            " (${uiState.selectedGenres.size})"
+                        } else {
+                            ""
+                        }
+                        Text("标签$countSuffix")
+                    },
+                )
+            }
+
+            items(BookshelfStatusFilter.entries, key = { "status:${it.name}" }) { status ->
+                FilterChip(
+                    selected = uiState.statusFilter == status,
+                    onClick = { viewModel.selectStatusFilter(status) },
+                    label = { Text(status.label) },
+                )
+            }
+        }
+
+        // 已激活标签 Chip 条 + 重置筛选
+        if (uiState.selectedGenres.isNotEmpty() || uiState.hasActiveFilters) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(uiState.selectedGenres.toList(), key = { "active_genre:$it" }) { genre ->
+                    InputChip(
+                        selected = true,
+                        onClick = { viewModel.toggleGenreFilter(genre) },
+                        label = { Text(genre) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "移除标签 $genre",
+                                modifier = Modifier.size(14.dp),
+                            )
+                        },
+                    )
+                }
+                if (uiState.hasActiveFilters) {
+                    item(key = "reset_filters") {
+                        TextButton(onClick = { viewModel.resetFilters() }) {
+                            Text("重置筛选")
+                        }
+                    }
+                }
+            }
+        }
+
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshing,
             onRefresh = { viewModel.syncNow() },
@@ -133,19 +322,28 @@ fun BookshelfScreen(
                 }
 
                 uiState.continueReading?.let { banner ->
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "continue_reading") {
-                        ContinueReadingCard(
-                            banner = banner,
-                            onClick = {
-                                onContinueReading(banner.platform, banner.novelId, banner.chapterId)
-                            },
-                        )
+                    if (!uiState.hasActiveFilters && uiState.selectedTab == BookshelfTab.All) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "continue_reading") {
+                            ContinueReadingCard(
+                                banner = banner,
+                                onClick = {
+                                    onContinueReading(banner.platform, banner.novelId, banner.chapterId)
+                                },
+                            )
+                        }
                     }
                 }
 
                 if (uiState.items.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "empty_bookshelf") {
-                        EmptyBookshelfCard(isConfigured = uiState.isConfigured)
+                        EmptyBookshelfCard(
+                            isConfigured = uiState.isConfigured,
+                            totalActiveBooksCount = uiState.totalActiveBooksCount,
+                            hasActiveFilters = uiState.hasActiveFilters,
+                            firstSelectedGenre = uiState.selectedGenres.firstOrNull(),
+                            onResetFilters = { viewModel.resetFilters() },
+                            onExploreCachedGenre = onExploreCachedGenre,
+                        )
                     }
                 } else {
                     items(
@@ -155,12 +353,89 @@ fun BookshelfScreen(
                         BookshelfNovelCard(
                             item = item,
                             onClick = { onOpenNovel(item.platform, item.novelId) },
-                            onLongClick = { pendingRemoval = item },
+                            onLongClick = { actionTarget = item },
                         )
                     }
                 }
             }
         }
+    }
+
+    actionTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { actionTarget = null },
+            title = {
+                Text(
+                    text = target.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            actionTarget = null
+                            assignTarget = target
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("管理所属书架")
+                    }
+                    TextButton(
+                        onClick = {
+                            actionTarget = null
+                            pendingRemoval = target
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("移出书架", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { actionTarget = null }) {
+                    Text("关闭")
+                }
+            },
+        )
+    }
+
+    assignTarget?.let { target ->
+        ShelfAssignDialog(
+            novelTitle = target.title,
+            categories = uiState.categories,
+            initialCategoryIds = target.categoryIds,
+            onDismiss = { assignTarget = null },
+            onCreateCategory = { name, onErr -> viewModel.createCategory(name, onErr) },
+            onConfirm = { selectedIds ->
+                viewModel.setBookshelfCategories(target.platform, target.novelId, selectedIds)
+                assignTarget = null
+            },
+        )
+    }
+
+    if (showShelfManager) {
+        ShelfManagerDialog(
+            categories = uiState.categories,
+            onDismiss = { showShelfManager = false },
+            onCreateCategory = { name, onErr -> viewModel.createCategory(name, onErr) },
+            onRenameCategory = { id, name, onErr -> viewModel.renameCategory(id, name, onErr) },
+            onDeleteCategory = { id -> viewModel.deleteCategory(id) },
+            onReorderCategories = { ids -> viewModel.reorderCategories(ids) },
+        )
+    }
+
+    if (showGenreDialog) {
+        GenreFilterDialog(
+            availableGenres = uiState.availableGenres,
+            selectedGenres = uiState.selectedGenres,
+            onDismiss = { showGenreDialog = false },
+            onConfirm = { genres ->
+                viewModel.setSelectedGenres(genres)
+                showGenreDialog = false
+            },
+        )
     }
 
     pendingRemoval?.let { target ->
@@ -421,7 +696,14 @@ private fun BookshelfNovelCard(
 }
 
 @Composable
-private fun EmptyBookshelfCard(isConfigured: Boolean) {
+private fun EmptyBookshelfCard(
+    isConfigured: Boolean,
+    totalActiveBooksCount: Int,
+    hasActiveFilters: Boolean,
+    firstSelectedGenre: String?,
+    onResetFilters: () -> Unit,
+    onExploreCachedGenre: (String) -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -442,18 +724,35 @@ private fun EmptyBookshelfCard(isConfigured: Boolean) {
                 modifier = Modifier.size(36.dp),
             )
             Text(
-                text = "书架还是空的",
+                text = when {
+                    hasActiveFilters -> "没有符合筛选条件的书籍"
+                    totalActiveBooksCount > 0 -> "当前书架暂无书籍"
+                    else -> "书架还是空的"
+                },
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = if (isConfigured) {
-                    "可以前往「发现」页收藏轻小说，或下拉刷新从服务端同步书架。"
-                } else {
-                    "配置服务器后可同步 Web 端书架或从「发现」页添加小说。"
+                text = when {
+                    hasActiveFilters -> "可以尝试调整标签、连载状态或搜索关键词。"
+                    totalActiveBooksCount > 0 -> "长按书籍卡片可将其分配到当前书架。"
+                    isConfigured -> "可以前往「发现」页收藏轻小说，或下拉刷新从服务端同步书架。"
+                    else -> "配置服务器后可同步 Web 端书架或从「发现」页添加小说。"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (hasActiveFilters) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onResetFilters) {
+                        Text("重置筛选")
+                    }
+                    if (!firstSelectedGenre.isNullOrBlank()) {
+                        Button(onClick = { onExploreCachedGenre(firstSelectedGenre) }) {
+                            Text("去服务器缓存查看「$firstSelectedGenre」")
+                        }
+                    }
+                }
+            }
         }
     }
 }
