@@ -3,6 +3,7 @@ package io.acanthis.app.core.preferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.acanthis.app.core.network.stripTrailingV1Prefix
@@ -16,6 +17,7 @@ data class ServerConfig(
     val authToken: String = "",
     val deviceLabel: String = defaultDeviceLabel(),
     val lastSyncCursor: Long = 0L,
+    val syncSchemaVersion: Int = 1,
 ) {
     val isConfigured: Boolean
         get() = apiBaseUrl.isNotBlank()
@@ -33,6 +35,7 @@ class ServerConfigStore(
         val AUTH_TOKEN = stringPreferencesKey("auth_token")
         val DEVICE_LABEL = stringPreferencesKey("device_label")
         val LAST_SYNC_CURSOR = longPreferencesKey("last_sync_cursor")
+        val SYNC_SCHEMA_VERSION = intPreferencesKey("sync_schema_version")
     }
 
     val configFlow: Flow<ServerConfig> = dataStore.data.map { prefs ->
@@ -42,6 +45,7 @@ class ServerConfigStore(
             deviceLabel = prefs[Keys.DEVICE_LABEL]?.takeIf { it.isNotBlank() }
                 ?: defaultDeviceLabel(),
             lastSyncCursor = (prefs[Keys.LAST_SYNC_CURSOR] ?: 0L).coerceAtLeast(0L),
+            syncSchemaVersion = (prefs[Keys.SYNC_SCHEMA_VERSION] ?: 1).coerceAtLeast(1),
         )
     }
 
@@ -80,5 +84,18 @@ class ServerConfigStore(
         dataStore.edit { prefs ->
             prefs[Keys.LAST_SYNC_CURSOR] = sanitized
         }
+    }
+
+    suspend fun ensureSyncSchemaVersion(targetVersion: Int): Boolean {
+        var upgraded = false
+        dataStore.edit { prefs ->
+            val current = (prefs[Keys.SYNC_SCHEMA_VERSION] ?: 1).coerceAtLeast(1)
+            if (current < targetVersion) {
+                prefs[Keys.SYNC_SCHEMA_VERSION] = targetVersion
+                prefs[Keys.LAST_SYNC_CURSOR] = 0L
+                upgraded = true
+            }
+        }
+        return upgraded
     }
 }

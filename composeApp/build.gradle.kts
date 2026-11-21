@@ -89,6 +89,7 @@ kotlin {
 
         getByName("androidHostTest").dependencies {
             implementation(libs.junit)
+            runtimeOnly(libs.androidx.sqlite.bundled.jvm)
         }
     }
 }

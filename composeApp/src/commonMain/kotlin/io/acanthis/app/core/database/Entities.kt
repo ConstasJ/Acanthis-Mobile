@@ -5,6 +5,19 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
+    tableName = "bookshelf_categories",
+)
+data class BookshelfCategoryEntity(
+    @PrimaryKey
+    val id: String,
+    val name: String,
+    val sortOrder: Int,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val deletedAt: Long?,
+)
+
+@Entity(
     tableName = "bookshelf_items",
     primaryKeys = ["platform", "novelId"],
 )
@@ -17,6 +30,9 @@ data class BookshelfEntity(
     val addedAt: Long,
     val updatedAt: Long,
     val deletedAt: Long?,
+    val categoryIdsJson: String = "[]",
+    val genresJson: String = "[]",
+    val status: String = "unknown",
 )
 
 @Entity(
@@ -36,6 +52,7 @@ data class ReadingProgressEntity(
     val totalParagraphs: Int,
     val deviceLabel: String,
     val updatedAt: Long,
+    val historyHiddenAt: Long? = null,
 )
 
 @Entity(
@@ -52,6 +69,7 @@ data class DirtySyncEntity(
     companion object {
         const val KIND_BOOKSHELF = "bookshelf"
         const val KIND_PROGRESS = "progress"
+        const val KIND_CATEGORY = "category"
 
         fun makeKey(kind: String, platform: String, novelId: String): String =
             "$kind:$platform:$novelId"

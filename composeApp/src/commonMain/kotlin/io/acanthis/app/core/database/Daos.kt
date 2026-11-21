@@ -11,6 +11,24 @@ data class ChapterCacheStatsRow(
 )
 
 @Dao
+interface BookshelfCategoryDao {
+    @Query("SELECT * FROM bookshelf_categories WHERE deletedAt IS NULL ORDER BY sortOrder ASC, createdAt ASC, id ASC")
+    fun observeActiveCategories(): Flow<List<BookshelfCategoryEntity>>
+
+    @Query("SELECT * FROM bookshelf_categories WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): BookshelfCategoryEntity?
+
+    @Query("SELECT * FROM bookshelf_categories ORDER BY sortOrder ASC, createdAt ASC, id ASC")
+    suspend fun getAll(): List<BookshelfCategoryEntity>
+
+    @Upsert
+    suspend fun upsert(category: BookshelfCategoryEntity)
+
+    @Upsert
+    suspend fun upsertAll(categories: List<BookshelfCategoryEntity>)
+}
+
+@Dao
 interface BookshelfDao {
     @Query("SELECT * FROM bookshelf_items WHERE deletedAt IS NULL ORDER BY updatedAt DESC")
     fun observeActiveBookshelf(): Flow<List<BookshelfEntity>>
@@ -36,7 +54,13 @@ interface ReadingProgressDao {
     @Query("SELECT * FROM reading_progress ORDER BY updatedAt DESC")
     fun observeAllProgress(): Flow<List<ReadingProgressEntity>>
 
-    @Query("SELECT * FROM reading_progress ORDER BY updatedAt DESC LIMIT 1")
+    @Query("SELECT * FROM reading_progress WHERE historyHiddenAt IS NULL OR updatedAt > historyHiddenAt ORDER BY updatedAt DESC")
+    fun observeVisibleHistory(): Flow<List<ReadingProgressEntity>>
+
+    @Query("SELECT * FROM reading_progress WHERE historyHiddenAt IS NULL OR updatedAt > historyHiddenAt ORDER BY updatedAt DESC")
+    suspend fun getVisibleHistory(): List<ReadingProgressEntity>
+
+    @Query("SELECT * FROM reading_progress WHERE historyHiddenAt IS NULL OR updatedAt > historyHiddenAt ORDER BY updatedAt DESC LIMIT 1")
     fun observeLatestProgress(): Flow<ReadingProgressEntity?>
 
     @Query("SELECT * FROM reading_progress WHERE platform = :platform AND novelId = :novelId LIMIT 1")
