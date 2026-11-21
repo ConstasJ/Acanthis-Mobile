@@ -1,7 +1,10 @@
 package io.acanthis.app.feature.explore
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +19,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -76,15 +83,76 @@ internal fun NovelCoverThumbnail(
 }
 
 @Composable
+private fun InBookshelfBadge(
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+        modifier = modifier,
+    ) {
+        Text(
+            text = "已在书架",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SelectionCheckBadge(
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+            contentDescription = if (isSelected) "已选中" else "未选中",
+            tint = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier
+                .padding(2.dp)
+                .size(20.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 internal fun ExploreGridNovelCard(
     item: ExploreNovelItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isInBookshelf: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
+    val cardBorderModifier = if (isSelectionMode && isSelected) {
+        Modifier.border(
+            width = 2.dp,
+            color = MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(10.dp),
+        )
+    } else {
+        Modifier
+    }
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .then(cardBorderModifier)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .padding(2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -97,7 +165,7 @@ internal fun ExploreGridNovelCard(
                     .aspectRatio(3f / 4f),
             )
             val statusBadge = formatNovelStatusLabel(item.status)
-            if (statusBadge != null) {
+            if (!isSelectionMode && statusBadge != null) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
@@ -112,6 +180,21 @@ internal fun ExploreGridNovelCard(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
+            }
+            if (isSelectionMode) {
+                SelectionCheckBadge(
+                    isSelected = isSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp),
+                )
+            }
+            if (isInBookshelf) {
+                InBookshelfBadge(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(5.dp),
+                )
             }
         }
         Text(
@@ -134,295 +217,482 @@ internal fun ExploreGridNovelCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ExploreFeaturedNovelCard(
     item: ExploreNovelItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isInBookshelf: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Card(
-        onClick = onClick,
         modifier = modifier.width(260.dp),
+        border = if (isSelectionMode && isSelected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
         ) {
-            NovelCoverThumbnail(
-                coverUrl = item.coverUrl,
-                contentDescription = item.title,
+            Row(
                 modifier = Modifier
-                    .width(78.dp)
-                    .aspectRatio(3f / 4f),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                Box {
+                    NovelCoverThumbnail(
+                        coverUrl = item.coverUrl,
+                        contentDescription = item.title,
+                        modifier = Modifier
+                            .width(78.dp)
+                            .aspectRatio(3f / 4f),
+                    )
+                    if (isInBookshelf) {
+                        InBookshelfBadge(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(4.dp),
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(end = if (isSelectionMode) 24.dp else 0.dp),
+                    )
+                    item.author?.takeIf { it.isNotBlank() }?.let { author ->
+                        Text(
+                            text = author,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    item.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    val meta = listOfNotNull(
+                        item.category?.takeIf { it.isNotBlank() },
+                        formatNovelStatusLabel(item.status),
+                        item.wordCount?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ")
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            text = meta,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            if (isSelectionMode) {
+                SelectionCheckBadge(
+                    isSelected = isSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
                 )
-                item.author?.takeIf { it.isNotBlank() }?.let { author ->
-                    Text(
-                        text = author,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                item.summary?.takeIf { it.isNotBlank() }?.let { summary ->
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                val meta = listOfNotNull(
-                    item.category?.takeIf { it.isNotBlank() },
-                    formatNovelStatusLabel(item.status),
-                    item.wordCount?.takeIf { it.isNotBlank() },
-                ).joinToString(" · ")
-                if (meta.isNotEmpty()) {
-                    Text(
-                        text = meta,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ExploreRankNovelCard(
     item: ExploreNovelItemDto,
     displayRank: Int?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isInBookshelf: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Card(
-        onClick = onClick,
         modifier = modifier.fillMaxWidth(),
+        border = if (isSelectionMode && isSelected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top,
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
         ) {
-            if (displayRank != null) {
-                val badgeBg = when (displayRank) {
-                    1 -> MaterialTheme.colorScheme.primary
-                    2 -> MaterialTheme.colorScheme.secondary
-                    3 -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.surfaceContainerHighest
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                if (displayRank != null) {
+                    val badgeBg = when (displayRank) {
+                        1 -> MaterialTheme.colorScheme.primary
+                        2 -> MaterialTheme.colorScheme.secondary
+                        3 -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+                    }
+                    val badgeFg = when (displayRank) {
+                        1 -> MaterialTheme.colorScheme.onPrimary
+                        2 -> MaterialTheme.colorScheme.onSecondary
+                        3 -> MaterialTheme.colorScheme.onTertiary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = badgeBg,
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = displayRank.toString(),
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = badgeFg,
+                            )
+                        }
+                    }
                 }
-                val badgeFg = when (displayRank) {
-                    1 -> MaterialTheme.colorScheme.onPrimary
-                    2 -> MaterialTheme.colorScheme.onSecondary
-                    3 -> MaterialTheme.colorScheme.onTertiary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = badgeBg,
-                    modifier = Modifier.size(30.dp),
+
+                NovelCoverThumbnail(
+                    coverUrl = item.coverUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .width(64.dp)
+                        .aspectRatio(3f / 4f),
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            text = displayRank.toString(),
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = badgeFg,
+                            text = item.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = if (isSelectionMode) 24.dp else 0.dp),
                         )
+                        if (isInBookshelf && !isSelectionMode) {
+                            InBookshelfBadge()
+                        }
+                    }
+                    val metaParts = buildList {
+                        item.author?.takeIf { it.isNotBlank() }?.let { add(it) }
+                        item.category?.takeIf { it.isNotBlank() }?.let { add(it) }
+                        formatNovelStatusLabel(item.status)?.let { add(it) }
+                        item.wordCount?.takeIf { it.isNotBlank() }?.let { add(it) }
+                    }
+                    if (metaParts.isNotEmpty()) {
+                        Text(
+                            text = metaParts.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    item.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    item.latestChapter?.takeIf { it.isNotBlank() }?.let { latest ->
+                        Text(
+                            text = "最新：$latest",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (isInBookshelf && isSelectionMode) {
+                        InBookshelfBadge()
                     }
                 }
             }
-
-            NovelCoverThumbnail(
-                coverUrl = item.coverUrl,
-                contentDescription = item.title,
-                modifier = Modifier
-                    .width(64.dp)
-                    .aspectRatio(3f / 4f),
-            )
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+            if (isSelectionMode) {
+                SelectionCheckBadge(
+                    isSelected = isSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
                 )
-                val metaParts = buildList {
-                    item.author?.takeIf { it.isNotBlank() }?.let { add(it) }
-                    item.category?.takeIf { it.isNotBlank() }?.let { add(it) }
-                    formatNovelStatusLabel(item.status)?.let { add(it) }
-                    item.wordCount?.takeIf { it.isNotBlank() }?.let { add(it) }
-                }
-                if (metaParts.isNotEmpty()) {
-                    Text(
-                        text = metaParts.joinToString(" · "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                item.summary?.takeIf { it.isNotBlank() }?.let { summary ->
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                item.latestChapter?.takeIf { it.isNotBlank() }?.let { latest ->
-                    Text(
-                        text = "最新：$latest",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ExploreUpdateNovelRow(
     item: ExploreNovelItemDto,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isInBookshelf: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(10.dp),
+        border = if (isSelectionMode && isSelected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
         ) {
-            NovelCoverThumbnail(
-                coverUrl = item.coverUrl,
-                contentDescription = item.title,
+            Row(
                 modifier = Modifier
-                    .width(44.dp)
-                    .aspectRatio(3f / 4f),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                NovelCoverThumbnail(
+                    coverUrl = item.coverUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .width(44.dp)
+                        .aspectRatio(3f / 4f),
                 )
-                val chapterOrMeta = item.latestChapter?.takeIf { it.isNotBlank() }
-                    ?: item.author?.takeIf { it.isNotBlank() }
-                if (chapterOrMeta != null) {
-                    Text(
-                        text = chapterOrMeta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = if (isSelectionMode) 24.dp else 0.dp),
+                        )
+                        if (isInBookshelf && !isSelectionMode) {
+                            InBookshelfBadge()
+                        }
+                    }
+                    val chapterOrMeta = item.latestChapter?.takeIf { it.isNotBlank() }
+                        ?: item.author?.takeIf { it.isNotBlank() }
+                    if (chapterOrMeta != null) {
+                        Text(
+                            text = chapterOrMeta,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    val footer = listOfNotNull(
+                        item.author?.takeIf { it.isNotBlank() && it != chapterOrMeta },
+                        item.category?.takeIf { it.isNotBlank() },
+                        item.updatedAt?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ")
+                    if (footer.isNotEmpty()) {
+                        Text(
+                            text = footer,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                val footer = listOfNotNull(
-                    item.author?.takeIf { it.isNotBlank() && it != chapterOrMeta },
-                    item.category?.takeIf { it.isNotBlank() },
-                    item.updatedAt?.takeIf { it.isNotBlank() },
-                ).joinToString(" · ")
-                if (footer.isNotEmpty()) {
+            }
+            if (isSelectionMode) {
+                SelectionCheckBadge(
+                    isSelected = isSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun SearchResultCard(
+    item: NovelSearchResultDto,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isInBookshelf: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        border = if (isSelectionMode && isSelected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                NovelCoverThumbnail(
+                    coverUrl = item.coverUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .width(56.dp)
+                        .aspectRatio(3f / 4f),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = if (isSelectionMode) 24.dp else 0.dp),
+                        )
+                        if (isInBookshelf && !isSelectionMode) {
+                            InBookshelfBadge()
+                        }
+                    }
                     Text(
-                        text = footer,
+                        text = "${item.platform} · #${item.id}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
+                    if (isInBookshelf && isSelectionMode) {
+                        InBookshelfBadge()
+                    }
                 }
+            }
+            if (isSelectionMode) {
+                SelectionCheckBadge(
+                    isSelected = isSelected,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                )
             }
         }
     }
 }
 
 @Composable
-internal fun SearchResultCard(
-    item: NovelSearchResultDto,
+internal fun CatalogFilterDropdownChip(
+    group: ExploreFilterGroupDto,
+    selectedValue: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    val selectedLabel = group.options.firstOrNull { it.value == selectedValue }?.label
+        ?: selectedValue.ifBlank { "全部" }
+    val isNonDefault = selectedValue.isNotBlank() && selectedValue != group.defaultValue
+    FilterChip(
+        selected = isNonDefault,
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            NovelCoverThumbnail(
-                coverUrl = item.coverUrl,
-                contentDescription = item.title,
-                modifier = Modifier
-                    .width(56.dp)
-                    .aspectRatio(3f / 4f),
+        label = {
+            Text(
+                text = "${group.label}: $selectedLabel",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "${item.platform} · #${item.id}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+        },
+        trailingIcon = {
+            Icon(
+                imageVector = Icons.Rounded.ArrowDropDown,
+                contentDescription = "选择${group.label}",
+                modifier = Modifier.size(18.dp),
+            )
+        },
+        modifier = modifier,
+    )
 }
 
 @Composable

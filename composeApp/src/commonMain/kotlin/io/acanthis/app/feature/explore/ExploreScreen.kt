@@ -3,6 +3,8 @@ package io.acanthis.app.feature.explore
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +23,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.LocalOffer
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -30,13 +34,18 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,15 +54,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.acanthis.app.core.network.ExploreFilterGroupDto
 import io.acanthis.app.core.network.ExploreSectionDto
 import io.acanthis.app.core.network.ExploreSectionMoreTargetDto
+import io.acanthis.app.core.ui.SearchableMultiSelectDialog
+import io.acanthis.app.core.ui.SearchableSingleSelectDialog
+import io.acanthis.app.core.ui.SelectableOption
+import io.acanthis.app.data.BatchBookshelfEntry
+import io.acanthis.app.feature.bookshelf.ShelfAssignDialog
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,155 +83,311 @@ fun ExploreScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val keyboardController = LocalSoftwareKeyboardController.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showBatchShelfDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (!uiState.isServerConfigured) {
-            UnconfiguredServerCard(
-                onOpenSettings = onOpenSettings,
-                modifier = Modifier.padding(20.dp),
-            )
-            return@Column
+    LaunchedEffect(uiState.snackbarMessage) {
+        val message = uiState.snackbarMessage
+        if (!message.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSnackbarMessage()
         }
+    }
 
-        // Top search bar
-        ExploreSearchBar(
-            query = uiState.searchQuery,
-            onQueryChange = viewModel::onSearchQueryChange,
-            onSubmit = {
-                keyboardController?.hide()
-                viewModel.submitSearch()
-            },
-            onClear = {
-                keyboardController?.hide()
-                viewModel.clearSearch()
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        )
+    val handleNovelClick: (BatchBookshelfEntry) -> Unit = { entry ->
+        if (uiState.isSelectionMode) {
+            viewModel.toggleNovelSelection(entry)
+        } else {
+            onOpenNovel(entry.platform, entry.novelId)
+        }
+    }
 
-        // Multi-source selector (visible when multiple sources exist)
-        if (uiState.sources.size > 1) {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+    val handleNovelLongClick: (BatchBookshelfEntry) -> Unit = { entry ->
+        if (uiState.isSelectionMode) {
+            viewModel.toggleNovelSelection(entry)
+        } else {
+            viewModel.enterSelectionMode(initialEntry = entry)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (!uiState.isServerConfigured) {
+                UnconfiguredServerCard(
+                    onOpenSettings = onOpenSettings,
+                    modifier = Modifier.padding(20.dp),
+                )
+                return@Column
+            }
+
+            // Top search bar + batch selection toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(uiState.sources, key = { it.id }) { source ->
-                    FilterChip(
-                        selected = source.id == uiState.selectedPlatform,
-                        onClick = { viewModel.selectPlatform(source.id) },
-                        label = { Text(source.name) },
-                    )
-                }
-            }
-        }
-
-        // Browse tabs (Home / Rankings / Catalog / Cached)
-        val browseModes = uiState.availableBrowseModes
-        if (browseModes.size > 1) {
-            val selectedTabIndex = browseModes.indexOf(uiState.activeBrowseMode).coerceAtLeast(0)
-            SecondaryTabRow(selectedTabIndex = selectedTabIndex) {
-                browseModes.forEach { tab ->
-                    val isSelected = uiState.mode != ExploreMode.SEARCH && uiState.activeBrowseMode == tab
-                    Tab(
-                        selected = isSelected,
-                        onClick = { viewModel.selectBrowseTab(tab) },
-                        text = {
-                            Text(
-                                text = when (tab) {
-                                    ExploreMode.HOME -> "首页"
-                                    ExploreMode.RANKINGS -> "榜单"
-                                    ExploreMode.CATALOG -> "分类"
-                                    ExploreMode.CACHED -> "服务器缓存"
-                                    ExploreMode.SEARCH -> "搜索"
-                                },
-                            )
-                        },
-                    )
-                }
-            }
-        }
-
-        // Cooldown banner (global so user always sees remaining seconds)
-        if (uiState.searchCooldownSeconds > 0) {
-            SearchCooldownBanner(
-                remainingSeconds = uiState.searchCooldownSeconds,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
-
-        // Content area
-        when {
-            uiState.mode == ExploreMode.SEARCH -> {
-                SearchResultsContent(
-                    uiState = uiState,
-                    onOpenNovel = onOpenNovel,
-                    onRetry = viewModel::submitSearch,
+                ExploreSearchBar(
+                    query = uiState.searchQuery,
+                    onQueryChange = viewModel::onSearchQueryChange,
+                    onSubmit = {
+                        keyboardController?.hide()
+                        viewModel.submitSearch()
+                    },
+                    onClear = {
+                        keyboardController?.hide()
+                        viewModel.clearSearch()
+                    },
+                    modifier = Modifier.weight(1f),
                 )
-            }
-
-            uiState.mode == ExploreMode.CACHED -> {
-                ExploreCachedContent(
-                    uiState = uiState,
-                    onRefresh = viewModel::refreshCurrentTab,
-                    onLoadMore = viewModel::loadNextCachedPage,
-                    onOpenNovel = onOpenNovel,
-                    onCachedSearchQueryChange = viewModel::onCachedSearchQueryChange,
-                    onSelectCachedStatus = viewModel::selectCachedStatus,
-                    onToggleCachedGenre = viewModel::toggleCachedGenre,
-                    onResetCachedFilters = viewModel::resetCachedFilters,
-                )
-            }
-
-            uiState.isLoadingSchema && uiState.schema == null -> {
-                CenteredLoadingState(message = "正在获取书源发现配置…")
-            }
-
-            uiState.schemaError != null && uiState.schema == null -> {
-                val schemaError = uiState.schemaError
-                if (schemaError != null) {
-                    Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        ExploreErrorCard(
-                            error = schemaError,
-                            onRetry = viewModel::retryBootstrap,
-                            secondaryActionLabel = "查看服务器缓存",
-                            onSecondaryAction = { viewModel.selectBrowseTab(ExploreMode.CACHED) },
+                if (uiState.isSelectionMode) {
+                    FilledTonalIconButton(
+                        onClick = { viewModel.exitSelectionMode() },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "退出批量选择",
+                        )
+                    }
+                } else {
+                    FilledTonalIconButton(
+                        onClick = { viewModel.enterSelectionMode() },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Checklist,
+                            contentDescription = "批量选择",
                         )
                     }
                 }
             }
 
-            else -> {
-                when (uiState.mode) {
-                    ExploreMode.HOME -> ExploreHomeContent(
-                        uiState = uiState,
-                        onSelectChannel = viewModel::selectChannel,
-                        onRefresh = viewModel::refreshCurrentTab,
-                        onOpenMore = viewModel::openMoreTarget,
-                        onOpenNovel = onOpenNovel,
-                    )
-
-                    ExploreMode.RANKINGS -> ExploreRankingsContent(
-                        uiState = uiState,
-                        onSelectRank = viewModel::selectRank,
-                        onSetFullOnly = viewModel::setRankFullOnly,
-                        onRefresh = viewModel::refreshCurrentTab,
-                        onLoadMore = viewModel::loadNextRankingsPage,
-                        onOpenNovel = onOpenNovel,
-                    )
-
-                    ExploreMode.CATALOG -> ExploreCatalogContent(
-                        uiState = uiState,
-                        onSelectFilter = viewModel::selectCatalogFilter,
-                        onResetFilters = viewModel::resetCatalogFilters,
-                        onRefresh = viewModel::refreshCurrentTab,
-                        onLoadMore = viewModel::loadNextCatalogPage,
-                        onOpenNovel = onOpenNovel,
-                    )
-
-                    ExploreMode.CACHED, ExploreMode.SEARCH -> Unit
+            // Multi-source selector (visible when multiple sources exist)
+            if (uiState.sources.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 6.dp),
+                ) {
+                    items(uiState.sources, key = { it.id }) { source ->
+                        FilterChip(
+                            selected = source.id == uiState.selectedPlatform,
+                            onClick = { viewModel.selectPlatform(source.id) },
+                            label = { Text(source.name) },
+                        )
+                    }
                 }
+            }
+
+            // Browse tabs (Home / Rankings / Catalog / Cached)
+            val browseModes = uiState.availableBrowseModes
+            if (browseModes.size > 1) {
+                val selectedTabIndex = browseModes.indexOf(uiState.activeBrowseMode).coerceAtLeast(0)
+                SecondaryTabRow(selectedTabIndex = selectedTabIndex) {
+                    browseModes.forEach { tab ->
+                        val isSelected = uiState.mode != ExploreMode.SEARCH && uiState.activeBrowseMode == tab
+                        Tab(
+                            selected = isSelected,
+                            onClick = { viewModel.selectBrowseTab(tab) },
+                            text = {
+                                Text(
+                                    text = when (tab) {
+                                        ExploreMode.HOME -> "首页"
+                                        ExploreMode.RANKINGS -> "榜单"
+                                        ExploreMode.CATALOG -> "分类"
+                                        ExploreMode.CACHED -> "服务器缓存"
+                                        ExploreMode.SEARCH -> "搜索"
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+
+            // Cooldown banner (global so user always sees remaining seconds)
+            if (uiState.searchCooldownSeconds > 0) {
+                SearchCooldownBanner(
+                    remainingSeconds = uiState.searchCooldownSeconds,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            // Content area
+            when {
+                uiState.mode == ExploreMode.SEARCH -> {
+                    SearchResultsContent(
+                        uiState = uiState,
+                        onNovelClick = handleNovelClick,
+                        onNovelLongClick = handleNovelLongClick,
+                        onRetry = viewModel::submitSearch,
+                    )
+                }
+
+                uiState.mode == ExploreMode.CACHED -> {
+                    ExploreCachedContent(
+                        uiState = uiState,
+                        onRefresh = viewModel::refreshCurrentTab,
+                        onLoadMore = viewModel::loadNextCachedPage,
+                        onNovelClick = handleNovelClick,
+                        onNovelLongClick = handleNovelLongClick,
+                        onCachedSearchQueryChange = viewModel::onCachedSearchQueryChange,
+                        onSelectCachedStatus = viewModel::selectCachedStatus,
+                        onToggleCachedGenre = viewModel::toggleCachedGenre,
+                        onSetCachedGenres = viewModel::setCachedGenres,
+                        onResetCachedFilters = viewModel::resetCachedFilters,
+                    )
+                }
+
+                uiState.isLoadingSchema && uiState.schema == null -> {
+                    CenteredLoadingState(message = "正在获取书源发现配置…")
+                }
+
+                uiState.schemaError != null && uiState.schema == null -> {
+                    val schemaError = uiState.schemaError
+                    if (schemaError != null) {
+                        Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            ExploreErrorCard(
+                                error = schemaError,
+                                onRetry = viewModel::retryBootstrap,
+                                secondaryActionLabel = "查看服务器缓存",
+                                onSecondaryAction = { viewModel.selectBrowseTab(ExploreMode.CACHED) },
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    when (uiState.mode) {
+                        ExploreMode.HOME -> ExploreHomeContent(
+                            uiState = uiState,
+                            onSelectChannel = viewModel::selectChannel,
+                            onRefresh = viewModel::refreshCurrentTab,
+                            onOpenMore = viewModel::openMoreTarget,
+                            onNovelClick = handleNovelClick,
+                            onNovelLongClick = handleNovelLongClick,
+                        )
+
+                        ExploreMode.RANKINGS -> ExploreRankingsContent(
+                            uiState = uiState,
+                            onSelectRank = viewModel::selectRank,
+                            onSetFullOnly = viewModel::setRankFullOnly,
+                            onRefresh = viewModel::refreshCurrentTab,
+                            onLoadMore = viewModel::loadNextRankingsPage,
+                            onNovelClick = handleNovelClick,
+                            onNovelLongClick = handleNovelLongClick,
+                        )
+
+                        ExploreMode.CATALOG -> ExploreCatalogContent(
+                            uiState = uiState,
+                            onSelectFilter = viewModel::selectCatalogFilter,
+                            onResetFilters = viewModel::resetCatalogFilters,
+                            onRefresh = viewModel::refreshCurrentTab,
+                            onLoadMore = viewModel::loadNextCatalogPage,
+                            onNovelClick = handleNovelClick,
+                            onNovelLongClick = handleNovelLongClick,
+                        )
+
+                        ExploreMode.CACHED, ExploreMode.SEARCH -> Unit
+                    }
+                }
+            }
+        }
+
+        if (uiState.isSelectionMode) {
+            BatchSelectionActionBar(
+                selectedCount = uiState.selectedCount,
+                isSubmitting = uiState.isBatchAdding,
+                onSelectAll = viewModel::selectAllCurrent,
+                onCancel = viewModel::exitSelectionMode,
+                onAddToBookshelf = {
+                    if (uiState.categories.isNotEmpty()) {
+                        showBatchShelfDialog = true
+                    } else {
+                        viewModel.batchAddSelectedToBookshelf(emptyList())
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (uiState.isSelectionMode) 76.dp else 8.dp),
+        )
+    }
+
+    if (showBatchShelfDialog) {
+        ShelfAssignDialog(
+            novelTitle = "",
+            categories = uiState.categories,
+            initialCategoryIds = emptyList(),
+            onDismiss = { showBatchShelfDialog = false },
+            onCreateCategory = { name, onErr -> viewModel.createCategory(name, onErr) },
+            onConfirm = { selectedIds ->
+                showBatchShelfDialog = false
+                viewModel.batchAddSelectedToBookshelf(selectedIds)
+            },
+            dialogTitle = "将 ${uiState.selectedCount} 部作品加入书架",
+            subtitleText = "已选 ${uiState.selectedCount} 部作品，勾选要归入的自定义书架。",
+            confirmLabel = "加入书架",
+        )
+    }
+}
+
+@Composable
+private fun BatchSelectionActionBar(
+    selectedCount: Int,
+    isSubmitting: Boolean,
+    onSelectAll: () -> Unit,
+    onCancel: () -> Unit,
+    onAddToBookshelf: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 6.dp,
+        tonalElevation = 4.dp,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "已选 $selectedCount 本",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onSelectAll,
+                enabled = !isSubmitting,
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                Text("全选当前")
+            }
+            TextButton(
+                onClick = onCancel,
+                enabled = !isSubmitting,
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                Text("取消")
+            }
+            Button(
+                onClick = onAddToBookshelf,
+                enabled = selectedCount > 0 && !isSubmitting,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text("加入书架")
             }
         }
     }
@@ -308,9 +482,11 @@ private fun ExploreHomeContent(
     onSelectChannel: (String) -> Unit,
     onRefresh: () -> Unit,
     onOpenMore: (ExploreSectionMoreTargetDto) -> Unit,
-    onOpenNovel: (String, String) -> Unit,
+    onNovelClick: (BatchBookshelfEntry) -> Unit,
+    onNovelLongClick: (BatchBookshelfEntry) -> Unit,
 ) {
     val channels = uiState.schema?.channels.orEmpty()
+    val bottomPadding = if (uiState.isSelectionMode) 88.dp else 24.dp
 
     PullToRefreshBox(
         isRefreshing = uiState.isLoadingHome && uiState.homeData != null,
@@ -319,7 +495,7 @@ private fun ExploreHomeContent(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (channels.isNotEmpty()) {
@@ -394,9 +570,15 @@ private fun ExploreHomeContent(
                                             items = section.items,
                                             key = { "${section.id}:${it.id}" },
                                         ) { novel ->
+                                            val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                                            val key = exploreNovelKey(entry.platform, entry.novelId)
                                             ExploreFeaturedNovelCard(
                                                 item = novel,
-                                                onClick = { onOpenNovel(novel.platform, novel.id) },
+                                                onClick = { onNovelClick(entry) },
+                                                onLongClick = { onNovelLongClick(entry) },
+                                                isInBookshelf = key in uiState.bookshelfKeys,
+                                                isSelectionMode = uiState.isSelectionMode,
+                                                isSelected = key in uiState.selectedNovels,
                                             )
                                         }
                                     }
@@ -408,10 +590,16 @@ private fun ExploreHomeContent(
                                     items = section.items,
                                     key = { idx, novel -> "${section.id}:rank:$idx:${novel.id}" },
                                 ) { idx, novel ->
+                                    val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                                    val key = exploreNovelKey(entry.platform, entry.novelId)
                                     ExploreRankNovelCard(
                                         item = novel,
                                         displayRank = novel.rank ?: (idx + 1),
-                                        onClick = { onOpenNovel(novel.platform, novel.id) },
+                                        onClick = { onNovelClick(entry) },
+                                        onLongClick = { onNovelLongClick(entry) },
+                                        isInBookshelf = key in uiState.bookshelfKeys,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isSelected = key in uiState.selectedNovels,
                                         modifier = Modifier.padding(horizontal = 16.dp),
                                     )
                                 }
@@ -422,9 +610,15 @@ private fun ExploreHomeContent(
                                     items = section.items,
                                     key = { idx, novel -> "${section.id}:upd:$idx:${novel.id}" },
                                 ) { _, novel ->
+                                    val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                                    val key = exploreNovelKey(entry.platform, entry.novelId)
                                     ExploreUpdateNovelRow(
                                         item = novel,
-                                        onClick = { onOpenNovel(novel.platform, novel.id) },
+                                        onClick = { onNovelClick(entry) },
+                                        onLongClick = { onNovelLongClick(entry) },
+                                        isInBookshelf = key in uiState.bookshelfKeys,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isSelected = key in uiState.selectedNovels,
                                         modifier = Modifier.padding(horizontal = 16.dp),
                                     )
                                 }
@@ -443,9 +637,15 @@ private fun ExploreHomeContent(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
                                         rowItems.forEach { novel ->
+                                            val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                                            val key = exploreNovelKey(entry.platform, entry.novelId)
                                             ExploreGridNovelCard(
                                                 item = novel,
-                                                onClick = { onOpenNovel(novel.platform, novel.id) },
+                                                onClick = { onNovelClick(entry) },
+                                                onLongClick = { onNovelLongClick(entry) },
+                                                isInBookshelf = key in uiState.bookshelfKeys,
+                                                isSelectionMode = uiState.isSelectionMode,
+                                                isSelected = key in uiState.selectedNovels,
                                                 modifier = Modifier.weight(1f),
                                             )
                                         }
@@ -501,12 +701,14 @@ private fun ExploreRankingsContent(
     onSetFullOnly: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onOpenNovel: (String, String) -> Unit,
+    onNovelClick: (BatchBookshelfEntry) -> Unit,
+    onNovelLongClick: (BatchBookshelfEntry) -> Unit,
 ) {
     val rankings = uiState.schema?.rankings.orEmpty()
     val hasAnyAll = rankings.any { it.supportsAll }
     val hasAnyFull = rankings.any { it.supportsFull }
     val listState = rememberLazyListState()
+    val bottomPadding = if (uiState.isSelectionMode) 88.dp else 24.dp
 
     val shouldTriggerLoadMore by remember(
         uiState.rankingHasNextPage,
@@ -539,7 +741,7 @@ private fun ExploreRankingsContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "ranking-controls") {
@@ -610,10 +812,16 @@ private fun ExploreRankingsContent(
                     items = uiState.rankingItems,
                     key = { idx, novel -> "ranking:$idx:${novel.id}" },
                 ) { idx, novel ->
+                    val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                    val key = exploreNovelKey(entry.platform, entry.novelId)
                     ExploreRankNovelCard(
                         item = novel,
                         displayRank = novel.rank ?: (idx + 1),
-                        onClick = { onOpenNovel(novel.platform, novel.id) },
+                        onClick = { onNovelClick(entry) },
+                        onLongClick = { onNovelLongClick(entry) },
+                        isInBookshelf = key in uiState.bookshelfKeys,
+                        isSelectionMode = uiState.isSelectionMode,
+                        isSelected = key in uiState.selectedNovels,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
@@ -642,7 +850,9 @@ private fun ExploreRankingsContent(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private const val CATALOG_PICKER_THRESHOLD = 8
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ExploreCatalogContent(
     uiState: ExploreUiState,
@@ -650,10 +860,19 @@ private fun ExploreCatalogContent(
     onResetFilters: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onOpenNovel: (String, String) -> Unit,
+    onNovelClick: (BatchBookshelfEntry) -> Unit,
+    onNovelLongClick: (BatchBookshelfEntry) -> Unit,
 ) {
     val filterGroups = uiState.schema?.catalogFilters.orEmpty()
+    val inlineGroups = remember(filterGroups) {
+        filterGroups.filter { it.options.size <= CATALOG_PICKER_THRESHOLD }
+    }
+    val pickerGroups = remember(filterGroups) {
+        filterGroups.filter { it.options.size > CATALOG_PICKER_THRESHOLD }
+    }
+    var activePickerGroup by remember { mutableStateOf<ExploreFilterGroupDto?>(null) }
     val listState = rememberLazyListState()
+    val bottomPadding = if (uiState.isSelectionMode) 88.dp else 24.dp
 
     val shouldTriggerLoadMore by remember(
         uiState.catalogHasNextPage,
@@ -686,7 +905,7 @@ private fun ExploreCatalogContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (filterGroups.isNotEmpty()) {
@@ -695,13 +914,31 @@ private fun ExploreCatalogContent(
                         modifier = Modifier.padding(top = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        filterGroups.forEach { group ->
+                        inlineGroups.forEach { group ->
                             val currentVal = uiState.selectedFilters[group.key] ?: group.defaultValue
                             CatalogFilterGroupRow(
                                 group = group,
                                 selectedValue = currentVal,
                                 onSelect = { value -> onSelectFilter(group.key, value) },
                             )
+                        }
+                        if (pickerGroups.isNotEmpty()) {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                pickerGroups.forEach { group ->
+                                    val currentVal = uiState.selectedFilters[group.key] ?: group.defaultValue
+                                    CatalogFilterDropdownChip(
+                                        group = group,
+                                        selectedValue = currentVal,
+                                        onClick = { activePickerGroup = group },
+                                    )
+                                }
+                            }
                         }
                         Row(
                             modifier = Modifier
@@ -753,9 +990,15 @@ private fun ExploreCatalogContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         rowItems.forEach { novel ->
+                            val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                            val key = exploreNovelKey(entry.platform, entry.novelId)
                             ExploreGridNovelCard(
                                 item = novel,
-                                onClick = { onOpenNovel(novel.platform, novel.id) },
+                                onClick = { onNovelClick(entry) },
+                                onLongClick = { onNovelLongClick(entry) },
+                                isInBookshelf = key in uiState.bookshelfKeys,
+                                isSelectionMode = uiState.isSelectionMode,
+                                isSelected = key in uiState.selectedNovels,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -787,6 +1030,28 @@ private fun ExploreCatalogContent(
             }
         }
     }
+
+    activePickerGroup?.let { group ->
+        val currentVal = uiState.selectedFilters[group.key] ?: group.defaultValue
+        SearchableSingleSelectDialog(
+            title = "选择${group.label}",
+            options = remember(group) {
+                group.options.map { option ->
+                    SelectableOption(
+                        value = option.value,
+                        label = option.label,
+                    )
+                }
+            },
+            selectedValue = currentVal,
+            onDismiss = { activePickerGroup = null },
+            onSelect = { value ->
+                activePickerGroup = null
+                onSelectFilter(group.key, value)
+            },
+            searchPlaceholder = "搜索${group.label}…",
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -795,13 +1060,17 @@ private fun ExploreCachedContent(
     uiState: ExploreUiState,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onOpenNovel: (String, String) -> Unit,
+    onNovelClick: (BatchBookshelfEntry) -> Unit,
+    onNovelLongClick: (BatchBookshelfEntry) -> Unit,
     onCachedSearchQueryChange: (String) -> Unit,
     onSelectCachedStatus: (String?) -> Unit,
     onToggleCachedGenre: (String) -> Unit,
+    onSetCachedGenres: (Set<String>) -> Unit,
     onResetCachedFilters: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    var showGenrePickerDialog by remember { mutableStateOf(false) }
+    val bottomPadding = if (uiState.isSelectionMode) 88.dp else 24.dp
     val hasCachedFilters = uiState.selectedCachedGenres.isNotEmpty() ||
         uiState.selectedCachedStatus != null ||
         uiState.cachedSearchQuery.isNotBlank()
@@ -837,7 +1106,7 @@ private fun ExploreCachedContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "cached-filters") {
@@ -870,6 +1139,29 @@ private fun ExploreCachedContent(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        if (uiState.cachedGenres.isNotEmpty() || uiState.selectedCachedGenres.isNotEmpty()) {
+                            item(key = "cached-genre-picker") {
+                                FilterChip(
+                                    selected = uiState.selectedCachedGenres.isNotEmpty(),
+                                    onClick = { showGenrePickerDialog = true },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.LocalOffer,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    label = {
+                                        val label = if (uiState.selectedCachedGenres.isNotEmpty()) {
+                                            "题材标签 (已选${uiState.selectedCachedGenres.size})"
+                                        } else {
+                                            "题材标签"
+                                        }
+                                        Text(label)
+                                    },
+                                )
+                            }
+                        }
                         val statusOptions = listOf(
                             null to "全部状态",
                             "ongoing" to "连载中",
@@ -884,16 +1176,27 @@ private fun ExploreCachedContent(
                         }
                     }
 
-                    if (uiState.cachedGenres.isNotEmpty()) {
+                    if (uiState.selectedCachedGenres.isNotEmpty()) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            items(uiState.cachedGenres, key = { it.name }) { genre ->
-                                FilterChip(
-                                    selected = genre.name in uiState.selectedCachedGenres,
-                                    onClick = { onToggleCachedGenre(genre.name) },
-                                    label = { Text("${genre.name} (${genre.count})") },
+                            items(
+                                items = uiState.selectedCachedGenres.toList(),
+                                key = { "selected-cached-genre:$it" },
+                            ) { genre ->
+                                InputChip(
+                                    selected = true,
+                                    onClick = { onToggleCachedGenre(genre) },
+                                    label = { Text(genre) },
+                                    trailingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "移除标签 $genre",
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    },
                                 )
                             }
                         }
@@ -967,9 +1270,15 @@ private fun ExploreCachedContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         rowItems.forEach { novel ->
+                            val entry = novel.toBatchBookshelfEntry(uiState.selectedPlatform)
+                            val key = exploreNovelKey(entry.platform, entry.novelId)
                             ExploreGridNovelCard(
                                 item = novel,
-                                onClick = { onOpenNovel(novel.platform, novel.id) },
+                                onClick = { onNovelClick(entry) },
+                                onLongClick = { onNovelLongClick(entry) },
+                                isInBookshelf = key in uiState.bookshelfKeys,
+                                isSelectionMode = uiState.isSelectionMode,
+                                isSelected = key in uiState.selectedNovels,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -1001,14 +1310,40 @@ private fun ExploreCachedContent(
             }
         }
     }
+
+    if (showGenrePickerDialog) {
+        SearchableMultiSelectDialog(
+            title = "选择题材标签（多选）",
+            options = remember(uiState.cachedGenres) {
+                uiState.cachedGenres.map { genre ->
+                    SelectableOption(
+                        value = genre.name,
+                        label = genre.name,
+                        count = genre.count,
+                    )
+                }
+            },
+            selectedValues = uiState.selectedCachedGenres,
+            onDismiss = { showGenrePickerDialog = false },
+            onConfirm = { selected ->
+                showGenrePickerDialog = false
+                onSetCachedGenres(selected)
+            },
+            searchPlaceholder = "搜索题材标签…",
+            emptyMessage = "当前书源暂无可用题材标签",
+            confirmLabel = "应用",
+        )
+    }
 }
 
 @Composable
 private fun SearchResultsContent(
     uiState: ExploreUiState,
-    onOpenNovel: (String, String) -> Unit,
+    onNovelClick: (BatchBookshelfEntry) -> Unit,
+    onNovelLongClick: (BatchBookshelfEntry) -> Unit,
     onRetry: () -> Unit,
 ) {
+    val bottomPadding = if (uiState.isSelectionMode) 88.dp else 16.dp
     when {
         uiState.isSearching -> {
             CenteredLoadingState(message = "正在搜索「${uiState.submittedQuery}」…")
@@ -1046,7 +1381,7 @@ private fun SearchResultsContent(
         else -> {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item(key = "search-header") {
@@ -1060,9 +1395,15 @@ private fun SearchResultsContent(
                     items = uiState.searchResults,
                     key = { "${it.platform}:${it.id}" },
                 ) { result ->
+                    val entry = result.toBatchBookshelfEntry(uiState.selectedPlatform)
+                    val key = exploreNovelKey(entry.platform, entry.novelId)
                     SearchResultCard(
                         item = result,
-                        onClick = { onOpenNovel(result.platform, result.id) },
+                        onClick = { onNovelClick(entry) },
+                        onLongClick = { onNovelLongClick(entry) },
+                        isInBookshelf = key in uiState.bookshelfKeys,
+                        isSelectionMode = uiState.isSelectionMode,
+                        isSelected = key in uiState.selectedNovels,
                     )
                 }
             }

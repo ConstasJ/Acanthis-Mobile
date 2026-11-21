@@ -2,6 +2,7 @@ package io.acanthis.app.feature.explore
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.acanthis.app.core.database.BookshelfCategoryEntity
 import io.acanthis.app.core.network.ApiException
 import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
@@ -14,7 +15,9 @@ import io.acanthis.app.core.network.stripTrailingV1Prefix
 import io.acanthis.app.core.network.toExploreNovelItem
 import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
+import io.acanthis.app.data.BatchBookshelfEntry
 import io.acanthis.app.data.ExploreRepository
+import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.data.SearchCooldownException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -97,7 +100,17 @@ data class ExploreUiState(
     val isSearching: Boolean = false,
     val searchError: ExploreErrorState? = null,
     val searchCooldownSeconds: Int = 0,
+    // BOOKSHELF & BATCH SELECTION
+    val bookshelfKeys: Set<String> = emptySet(),
+    val categories: List<BookshelfCategoryEntity> = emptyList(),
+    val isSelectionMode: Boolean = false,
+    val selectedNovels: Map<String, BatchBookshelfEntry> = emptyMap(),
+    val isBatchAdding: Boolean = false,
+    val snackbarMessage: String? = null,
 ) {
+    val selectedCount: Int
+        get() = selectedNovels.size
+
     val supportsExplore: Boolean
         get() {
             val currentSource = sources.firstOrNull { it.id == selectedPlatform } ?: return true
@@ -136,18 +149,48 @@ data class ExploreUiState(
     }
 }
 
+internal fun exploreNovelKey(platform: String, novelId: String): String =
+    "${platform.trim()}:${novelId.trim()}"
+
+internal fun ExploreNovelItemDto.toBatchBookshelfEntry(fallbackPlatform: String): BatchBookshelfEntry {
+    val resolvedGenres = genres.ifEmpty {
+        listOfNotNull(category?.trim()?.takeIf { it.isNotEmpty() })
+    }
+    return BatchBookshelfEntry(
+        platform = platform.trim().ifBlank { fallbackPlatform },
+        novelId = id.trim(),
+        title = title.trim(),
+        author = author?.trim().orEmpty(),
+        coverUrl = coverUrl?.trim().orEmpty(),
+        genres = resolvedGenres,
+        status = status?.trim()?.takeIf { it.isNotEmpty() } ?: "unknown",
+    )
+}
+
+internal fun NovelSearchResultDto.toBatchBookshelfEntry(fallbackPlatform: String): BatchBookshelfEntry {
+    return BatchBookshelfEntry(
+        platform = platform.trim().ifBlank { fallbackPlatform },
+        novelId = id.trim(),
+        title = title.trim(),
+        coverUrl = coverUrl?.trim().orEmpty(),
+    )
+}
+
 class ExploreViewModel private constructor(
     private val exploreRepository: ExploreRepository,
     private val configFlow: Flow<ServerConfig>,
+    private val libraryRepository: LibraryRepository?,
     @Suppress("UNUSED_PARAMETER") marker: Unit,
 ) : ViewModel() {
 
     constructor(
         exploreRepository: ExploreRepository,
         serverConfigStore: ServerConfigStore,
+        libraryRepository: LibraryRepository,
     ) : this(
         exploreRepository = exploreRepository,
         configFlow = serverConfigStore.configFlow,
+        libraryRepository = libraryRepository,
         marker = Unit,
     )
 
@@ -167,6 +210,27 @@ class ExploreViewModel private constructor(
 
     init {
         observeServerConfig()
+        observeBookshelf()
+    }
+
+    private fun observeBookshelf() {
+        val repo = libraryRepository ?: return
+        viewModelScope.launch {
+            repo.observeActiveBookshelf()
+                .map { items ->
+                    items.mapTo(HashSet()) { exploreNovelKey(it.platform, it.novelId) }
+                }
+                .distinctUntilChanged()
+                .collect { keys ->
+                    _uiState.update { it.copy(bookshelfKeys = keys) }
+                }
+        }
+        viewModelScope.launch {
+            repo.observeActiveCategories()
+                .collect { categories ->
+                    _uiState.update { it.copy(categories = categories) }
+                }
+        }
     }
 
     private fun observeServerConfig() {
@@ -179,13 +243,153 @@ class ExploreViewModel private constructor(
                 .collect { (normalizedBaseUrl, _) ->
                     if (normalizedBaseUrl.isEmpty()) {
                         cancelAllRequests()
-                        _uiState.value = ExploreUiState(isServerConfigured = false)
+                        _uiState.update { current ->
+                            ExploreUiState(
+                                isServerConfigured = false,
+                                bookshelfKeys = current.bookshelfKeys,
+                                categories = current.categories,
+                            )
+                        }
                     } else {
                         _uiState.update { it.copy(isServerConfigured = true) }
                         bootstrapSourcesAndSchema(forceRefresh = false)
                     }
                 }
         }
+    }
+
+    fun enterSelectionMode(initialEntry: BatchBookshelfEntry? = null) {
+        _uiState.update { state ->
+            val nextSelected = if (initialEntry != null) {
+                val key = exploreNovelKey(initialEntry.platform, initialEntry.novelId)
+                if (initialEntry.platform.isNotBlank() && initialEntry.novelId.isNotBlank()) {
+                    state.selectedNovels + (key to initialEntry)
+                } else {
+                    state.selectedNovels
+                }
+            } else {
+                state.selectedNovels
+            }
+            state.copy(
+                isSelectionMode = true,
+                selectedNovels = nextSelected,
+            )
+        }
+    }
+
+    fun exitSelectionMode() {
+        _uiState.update {
+            it.copy(
+                isSelectionMode = false,
+                selectedNovels = emptyMap(),
+            )
+        }
+    }
+
+    fun toggleNovelSelection(entry: BatchBookshelfEntry) {
+        val platform = entry.platform.trim()
+        val novelId = entry.novelId.trim()
+        if (platform.isEmpty() || novelId.isEmpty()) return
+        val normalized = entry.copy(platform = platform, novelId = novelId)
+        val key = exploreNovelKey(platform, novelId)
+        _uiState.update { state ->
+            val nextSelected = if (key in state.selectedNovels) {
+                state.selectedNovels - key
+            } else {
+                state.selectedNovels + (key to normalized)
+            }
+            state.copy(
+                isSelectionMode = true,
+                selectedNovels = nextSelected,
+            )
+        }
+    }
+
+    fun selectAllCurrent() {
+        _uiState.update { state ->
+            val currentEntries = when (state.mode) {
+                ExploreMode.HOME -> state.homeData?.sections.orEmpty()
+                    .flatMap { it.items }
+                    .map { it.toBatchBookshelfEntry(state.selectedPlatform) }
+
+                ExploreMode.RANKINGS -> state.rankingItems
+                    .map { it.toBatchBookshelfEntry(state.selectedPlatform) }
+
+                ExploreMode.CATALOG -> state.catalogItems
+                    .map { it.toBatchBookshelfEntry(state.selectedPlatform) }
+
+                ExploreMode.CACHED -> state.cachedItems
+                    .map { it.toBatchBookshelfEntry(state.selectedPlatform) }
+
+                ExploreMode.SEARCH -> state.searchResults
+                    .map { it.toBatchBookshelfEntry(state.selectedPlatform) }
+            }
+            if (currentEntries.isEmpty()) {
+                return@update state.copy(isSelectionMode = true)
+            }
+            val merged = LinkedHashMap(state.selectedNovels)
+            currentEntries.forEach { entry ->
+                if (entry.platform.isNotBlank() && entry.novelId.isNotBlank()) {
+                    val key = exploreNovelKey(entry.platform, entry.novelId)
+                    if (key !in merged) {
+                        merged[key] = entry
+                    }
+                }
+            }
+            state.copy(
+                isSelectionMode = true,
+                selectedNovels = merged,
+            )
+        }
+    }
+
+    fun batchAddSelectedToBookshelf(categoryIds: List<String> = emptyList()) {
+        val repo = libraryRepository ?: return
+        val snapshot = _uiState.value
+        if (snapshot.isBatchAdding || snapshot.selectedNovels.isEmpty()) {
+            return
+        }
+        val entries = snapshot.selectedNovels.values.toList()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBatchAdding = true) }
+            try {
+                val count = repo.batchAddToBookshelf(
+                    entries = entries,
+                    categoryIds = categoryIds,
+                )
+                _uiState.update {
+                    it.copy(
+                        isBatchAdding = false,
+                        isSelectionMode = false,
+                        selectedNovels = emptyMap(),
+                        snackbarMessage = if (count > 0) "已将 $count 部作品加入书架" else null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isBatchAdding = false,
+                        snackbarMessage = e.message?.takeIf { msg -> msg.isNotBlank() } ?: "批量加入书架失败",
+                    )
+                }
+            }
+        }
+    }
+
+    fun createCategory(name: String, onError: (String) -> Unit = {}) {
+        val repo = libraryRepository ?: return
+        viewModelScope.launch {
+            runCatching { repo.createCategory(name) }
+                .onFailure { err ->
+                    onError(err.message ?: "创建书架失败")
+                }
+        }
+    }
+
+    fun clearSnackbarMessage() {
+        _uiState.update { it.copy(snackbarMessage = null) }
     }
 
     fun retryBootstrap() {
@@ -538,6 +742,23 @@ class ExploreViewModel private constructor(
             }
             state.copy(
                 selectedCachedGenres = next,
+                cachedItems = emptyList(),
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                cachedError = null,
+            )
+        }
+        loadCached(page = 1, append = false)
+    }
+
+    fun setCachedGenres(genres: Set<String>) {
+        val normalized = genres.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (normalized == _uiState.value.selectedCachedGenres) {
+            return
+        }
+        _uiState.update { state ->
+            state.copy(
+                selectedCachedGenres = normalized,
                 cachedItems = emptyList(),
                 cachedPage = 1,
                 cachedHasNextPage = false,
@@ -1308,9 +1529,11 @@ class ExploreViewModel private constructor(
         internal fun createForTest(
             exploreRepository: ExploreRepository,
             configFlow: Flow<ServerConfig>,
+            libraryRepository: LibraryRepository? = null,
         ): ExploreViewModel = ExploreViewModel(
             exploreRepository = exploreRepository,
             configFlow = configFlow,
+            libraryRepository = libraryRepository,
             marker = Unit,
         )
     }
