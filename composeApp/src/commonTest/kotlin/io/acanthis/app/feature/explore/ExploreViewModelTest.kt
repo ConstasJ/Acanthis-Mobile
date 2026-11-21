@@ -1,6 +1,7 @@
 package io.acanthis.app.feature.explore
 
 import io.acanthis.app.core.network.AcanthisApi
+import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ExploreChannelOptionDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
 import io.acanthis.app.core.network.ExplorePageDto
@@ -92,10 +93,19 @@ class ExploreViewModelTest {
             platform: String,
             page: Int,
             pageSize: Int,
+            genres: List<String>,
+            status: String?,
+            query: String?,
         ): PaginatedNovelsResponseDto {
             cachedCalls++
             return cachedHandler(platform, page, pageSize)
         }
+
+        override suspend fun fetchCachedGenres(
+            baseUrl: String,
+            authToken: String?,
+            platform: String,
+        ): List<CachedGenreDto> = emptyList()
 
         override suspend fun checkHealth(baseUrl: String): HealthResponse = error("Not used")
         override suspend fun fetchRankings(

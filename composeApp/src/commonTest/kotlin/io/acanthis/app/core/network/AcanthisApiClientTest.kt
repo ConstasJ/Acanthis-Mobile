@@ -678,4 +678,83 @@ class AcanthisApiClientTest {
         assertEquals("1", req.url.parameters["pageSize"])
         assertNull(req.headers[HttpHeaders.Authorization])
     }
+
+    @Test
+    fun fetchCachedNovelsSendsGenreStatusAndQueryParamsAndFetchCachedGenresParsesEnvelope() = runTest {
+        val recordedRequests = mutableListOf<HttpRequestData>()
+        val client = createClient { request ->
+            recordedRequests += request
+            when (request.url.encodedPath) {
+                "/v1/linovelib/novels" -> respondJson(
+                    """
+                    {
+                      "code": 0,
+                      "message": "Success",
+                      "data": {
+                        "items": [
+                          {
+                            "id": "3002",
+                            "platform": "linovelib",
+                            "title": "奇幻校园物语",
+                            "status": "ongoing",
+                            "genres": ["奇幻", "校园"]
+                          }
+                        ],
+                        "total": 1,
+                        "page": 1,
+                        "pageSize": 20
+                      }
+                    }
+                    """.trimIndent(),
+                )
+
+                "/v1/linovelib/genres" -> respondJson(
+                    """
+                    {
+                      "code": 0,
+                      "message": "Success",
+                      "data": [
+                        { "name": "奇幻", "count": 12 },
+                        { "name": "校园", "count": 8 }
+                      ]
+                    }
+                    """.trimIndent(),
+                )
+
+                else -> error("Unexpected path: ${request.url.encodedPath}")
+            }
+        }
+
+        val novels = client.fetchCachedNovels(
+            baseUrl = "https://api.example.com",
+            authToken = "tok",
+            platform = "linovelib",
+            page = 1,
+            pageSize = 20,
+            genres = listOf("奇幻", " 校园 ", "奇幻", ""),
+            status = "ongoing",
+            query = " 异世界 ",
+        )
+        val genres = client.fetchCachedGenres(
+            baseUrl = "https://api.example.com",
+            authToken = "tok",
+            platform = "linovelib",
+        )
+
+        assertEquals(2, recordedRequests.size)
+        val novelsReq = recordedRequests[0]
+        assertEquals("/v1/linovelib/novels", novelsReq.url.encodedPath)
+        assertEquals("奇幻,校园", novelsReq.url.parameters["genres"])
+        assertEquals("ongoing", novelsReq.url.parameters["status"])
+        assertEquals("异世界", novelsReq.url.parameters["q"])
+        assertEquals(1, novels.items.size)
+
+        val genresReq = recordedRequests[1]
+        assertEquals("/v1/linovelib/genres", genresReq.url.encodedPath)
+        assertEquals("Bearer tok", genresReq.headers[HttpHeaders.Authorization])
+        assertEquals(
+            listOf(CachedGenreDto(name = "奇幻", count = 12), CachedGenreDto(name = "校园", count = 8)),
+            genres,
+        )
+    }
 }

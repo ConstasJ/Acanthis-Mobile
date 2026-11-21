@@ -66,6 +66,7 @@ val appModule = module {
     single { DefaultCoilCacheController(httpClient = get()) } bind CoilCacheController::class
 
     single<AppDatabase> { buildAppDatabase(createAppDatabaseBuilder()) }
+    single { get<AppDatabase>().bookshelfCategoryDao() }
     single { get<AppDatabase>().bookshelfDao() }
     single { get<AppDatabase>().readingProgressDao() }
     single { get<AppDatabase>().dirtySyncDao() }
@@ -78,6 +79,7 @@ val appModule = module {
 
     single<LibraryLocalStore> {
         RoomLibraryLocalStore(
+            bookshelfCategoryDao = get(),
             bookshelfDao = get(),
             readingProgressDao = get(),
             dirtySyncDao = get(),

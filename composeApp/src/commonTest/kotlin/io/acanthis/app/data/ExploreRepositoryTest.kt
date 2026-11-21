@@ -1,6 +1,7 @@
 package io.acanthis.app.data
 
 import io.acanthis.app.core.network.AcanthisApi
+import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ExploreChannelOptionDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
 import io.acanthis.app.core.network.ExploreNovelItemDto
@@ -155,6 +156,9 @@ class ExploreRepositoryTest {
             platform: String,
             page: Int,
             pageSize: Int,
+            genres: List<String>,
+            status: String?,
+            query: String?,
         ): PaginatedNovelsResponseDto {
             lastCachedPlatform = platform
             lastCachedPage = page
@@ -179,6 +183,12 @@ class ExploreRepositoryTest {
                 pageSize = pageSize,
             )
         }
+
+        override suspend fun fetchCachedGenres(
+            baseUrl: String,
+            authToken: String?,
+            platform: String,
+        ): List<CachedGenreDto> = emptyList()
 
         override suspend fun fetchChapterContent(
             baseUrl: String,

@@ -168,6 +168,12 @@ data class PaginatedNovelsResponseDto(
 )
 
 @Serializable
+data class CachedGenreDto(
+    val name: String,
+    val count: Int = 0,
+)
+
+@Serializable
 data class ChapterDto(
     val id: String,
     val platform: String? = null,
@@ -207,6 +213,19 @@ data class ChapterContentResponseDto(
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
+data class BookshelfCategoryDto(
+    val id: String,
+    val name: String,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val sortOrder: Int = 0,
+    val createdAt: Long,
+    val updatedAt: Long,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val deletedAt: Long? = null,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
 data class BookshelfItemDto(
     val platform: String,
     val novelId: String,
@@ -219,6 +238,12 @@ data class BookshelfItemDto(
     val updatedAt: Long,
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val deletedAt: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val categoryIds: List<String> = emptyList(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val genres: List<String> = emptyList(),
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val status: String = "unknown",
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -243,12 +268,15 @@ data class ReadingProgressDto(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val deviceLabel: String = "",
     val updatedAt: Long,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val historyHiddenAt: Long? = null,
 )
 
 @Serializable
 data class SyncStatePullResponseDto(
     val bookshelf: List<BookshelfItemDto> = emptyList(),
     val progress: List<ReadingProgressDto> = emptyList(),
+    val categories: List<BookshelfCategoryDto> = emptyList(),
     val cursor: Long = 0L,
 )
 
@@ -259,11 +287,14 @@ data class SyncStatePushPayloadDto(
     val bookshelf: List<BookshelfItemDto>? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val progress: List<ReadingProgressDto>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val categories: List<BookshelfCategoryDto>? = null,
 )
 
 @Serializable
 data class SyncStatePushResponseDto(
     val bookshelf: List<BookshelfItemDto> = emptyList(),
     val progress: List<ReadingProgressDto> = emptyList(),
+    val categories: List<BookshelfCategoryDto> = emptyList(),
     val serverTime: Long = 0L,
 )

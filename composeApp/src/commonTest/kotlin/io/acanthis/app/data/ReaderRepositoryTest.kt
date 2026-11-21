@@ -4,6 +4,7 @@ import io.acanthis.app.core.database.ChapterCacheEntity
 import io.acanthis.app.core.database.ChapterCacheStatsRow
 import io.acanthis.app.core.database.NovelCacheEntity
 import io.acanthis.app.core.network.AcanthisApi
+import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ChapterDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
 import io.acanthis.app.core.network.ExplorePageDto
@@ -137,7 +138,8 @@ class ReaderRepositoryTest {
         override suspend fun fetchRankings(baseUrl: String, authToken: String?, platform: String, rank: String, full: Boolean, page: Int): ExplorePageDto = error("Not used")
         override suspend fun fetchCatalog(baseUrl: String, authToken: String?, platform: String, filters: Map<String, String>, page: Int): ExplorePageDto = error("Not used")
         override suspend fun searchNovels(baseUrl: String, authToken: String?, platform: String, keyword: String): List<NovelSearchResultDto> = error("Not used")
-        override suspend fun fetchCachedNovels(baseUrl: String, authToken: String?, platform: String, page: Int, pageSize: Int): PaginatedNovelsResponseDto = error("Not used")
+        override suspend fun fetchCachedNovels(baseUrl: String, authToken: String?, platform: String, page: Int, pageSize: Int, genres: List<String>, status: String?, query: String?): PaginatedNovelsResponseDto = error("Not used")
+        override suspend fun fetchCachedGenres(baseUrl: String, authToken: String?, platform: String): List<CachedGenreDto> = error("Not used")
         override suspend fun pullSyncState(baseUrl: String, authToken: String?, since: Long?): SyncStatePullResponseDto = error("Not used")
         override suspend fun pushSyncState(baseUrl: String, authToken: String?, payload: SyncStatePushPayloadDto): SyncStatePushResponseDto = error("Not used")
     }

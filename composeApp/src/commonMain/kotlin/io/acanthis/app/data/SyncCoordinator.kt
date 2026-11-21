@@ -1,9 +1,11 @@
 package io.acanthis.app.data
 
+import io.acanthis.app.core.database.BookshelfCategoryEntity
 import io.acanthis.app.core.database.BookshelfEntity
 import io.acanthis.app.core.database.DirtySyncEntity
 import io.acanthis.app.core.database.ReadingProgressEntity
 import io.acanthis.app.core.network.AcanthisApi
+import io.acanthis.app.core.network.BookshelfCategoryDto
 import io.acanthis.app.core.network.BookshelfItemDto
 import io.acanthis.app.core.network.ReadingProgressDto
 import io.acanthis.app.core.network.SyncStatePushPayloadDto
@@ -38,6 +40,7 @@ data class SyncStateSnapshot(
 interface SyncConfigProvider {
     suspend fun currentConfig(): ServerConfig
     suspend fun updateLastSyncCursor(cursor: Long)
+    suspend fun ensureSyncSchemaVersion(targetVersion: Int): Boolean
 }
 
 class StoreSyncConfigProvider(
@@ -48,6 +51,9 @@ class StoreSyncConfigProvider(
     override suspend fun updateLastSyncCursor(cursor: Long) {
         serverConfigStore.updateLastSyncCursor(cursor)
     }
+
+    override suspend fun ensureSyncSchemaVersion(targetVersion: Int): Boolean =
+        serverConfigStore.ensureSyncSchemaVersion(targetVersion)
 }
 
 class SyncCoordinator(
@@ -141,6 +147,7 @@ class SyncCoordinator(
     }
 
     private suspend fun performSyncNow() {
+        configProvider.ensureSyncSchemaVersion(SYNC_SCHEMA_VERSION)
         val config = configProvider.currentConfig()
         if (!config.isConfigured) {
             _syncState.update { it.copy(status = SyncStatus.IDLE, lastError = null) }
@@ -163,6 +170,7 @@ class SyncCoordinator(
             mergeRemoteState(
                 remoteBookshelf = pullResult.bookshelf,
                 remoteProgress = pullResult.progress,
+                remoteCategories = pullResult.categories,
             )
 
             // Cursor MUST only be advanced from GET /v1/sync/state response, never POST serverTime.
@@ -200,6 +208,7 @@ class SyncCoordinator(
 
             val bookshelfToPush = mutableListOf<BookshelfItemDto>()
             val progressToPush = mutableListOf<ReadingProgressDto>()
+            val categoriesToPush = mutableListOf<BookshelfCategoryDto>()
             val pushedSnapshot = linkedMapOf<String, Long>()
 
             for (entry in dirtyEntries) {
@@ -219,16 +228,25 @@ class SyncCoordinator(
                             pushedSnapshot[entry.key] = entry.updatedAt
                         }
                     }
+
+                    DirtySyncEntity.KIND_CATEGORY -> {
+                        val item = localStore.getCategory(entry.novelId)
+                        if (item != null) {
+                            categoriesToPush += item.toDto()
+                            pushedSnapshot[entry.key] = entry.updatedAt
+                        }
+                    }
                 }
             }
 
-            if (bookshelfToPush.isEmpty() && progressToPush.isEmpty()) {
+            if (bookshelfToPush.isEmpty() && progressToPush.isEmpty() && categoriesToPush.isEmpty()) {
                 return
             }
 
             val payload = SyncStatePushPayloadDto(
                 bookshelf = bookshelfToPush.takeIf { it.isNotEmpty() },
                 progress = progressToPush.takeIf { it.isNotEmpty() },
+                categories = categoriesToPush.takeIf { it.isNotEmpty() },
             )
 
             // Intentionally do NOT write pushResult.serverTime into lastSyncCursor.
@@ -248,6 +266,7 @@ class SyncCoordinator(
             mergeRemoteState(
                 remoteBookshelf = pushResult.bookshelf,
                 remoteProgress = pushResult.progress,
+                remoteCategories = pushResult.categories,
             )
         }
     }
@@ -255,7 +274,20 @@ class SyncCoordinator(
     private suspend fun mergeRemoteState(
         remoteBookshelf: List<BookshelfItemDto>,
         remoteProgress: List<ReadingProgressDto>,
+        remoteCategories: List<BookshelfCategoryDto>,
     ) {
+        val acceptedCategories = linkedMapOf<String, BookshelfCategoryEntity>()
+        for (remote in remoteCategories) {
+            val baseline = acceptedCategories[remote.id]
+                ?: localStore.getCategory(remote.id)
+            if (baseline == null || remote.updatedAt >= baseline.updatedAt) {
+                acceptedCategories[remote.id] = remote.toEntity()
+            }
+        }
+        if (acceptedCategories.isNotEmpty()) {
+            localStore.upsertCategories(acceptedCategories.values.toList())
+        }
+
         val acceptedBookshelf = linkedMapOf<Pair<String, String>, BookshelfEntity>()
         for (remote in remoteBookshelf) {
             val key = remote.platform to remote.novelId
@@ -274,8 +306,15 @@ class SyncCoordinator(
             val key = remote.platform to remote.novelId
             val baseline = acceptedProgress[key]
                 ?: localStore.getReadingProgress(remote.platform, remote.novelId)
-            if (baseline == null || remote.updatedAt >= baseline.updatedAt) {
+            if (baseline == null) {
                 acceptedProgress[key] = remote.toEntity()
+            } else {
+                val mergedHiddenAt = maxNullableLong(baseline.historyHiddenAt, remote.historyHiddenAt)
+                if (remote.updatedAt >= baseline.updatedAt) {
+                    acceptedProgress[key] = remote.toEntity().copy(historyHiddenAt = mergedHiddenAt)
+                } else if (mergedHiddenAt != baseline.historyHiddenAt) {
+                    acceptedProgress[key] = baseline.copy(historyHiddenAt = mergedHiddenAt)
+                }
             }
         }
         if (acceptedProgress.isNotEmpty()) {
@@ -285,8 +324,35 @@ class SyncCoordinator(
 
     companion object {
         const val DEFAULT_DEBOUNCE_MS = 2000L
+        const val SYNC_SCHEMA_VERSION = 2
     }
 }
+
+internal fun maxNullableLong(a: Long?, b: Long?): Long? {
+    return when {
+        a == null -> b
+        b == null -> a
+        else -> maxOf(a, b)
+    }
+}
+
+internal fun BookshelfCategoryEntity.toDto(): BookshelfCategoryDto = BookshelfCategoryDto(
+    id = id,
+    name = name,
+    sortOrder = sortOrder,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    deletedAt = deletedAt,
+)
+
+internal fun BookshelfCategoryDto.toEntity(): BookshelfCategoryEntity = BookshelfCategoryEntity(
+    id = id,
+    name = name,
+    sortOrder = sortOrder,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    deletedAt = deletedAt,
+)
 
 internal fun BookshelfEntity.toDto(): BookshelfItemDto = BookshelfItemDto(
     platform = platform,
@@ -297,6 +363,9 @@ internal fun BookshelfEntity.toDto(): BookshelfItemDto = BookshelfItemDto(
     addedAt = addedAt,
     updatedAt = updatedAt,
     deletedAt = deletedAt,
+    categoryIds = decodeStringListJson(categoryIdsJson),
+    genres = decodeStringListJson(genresJson),
+    status = status.ifBlank { "unknown" },
 )
 
 internal fun BookshelfItemDto.toEntity(): BookshelfEntity = BookshelfEntity(
@@ -308,6 +377,9 @@ internal fun BookshelfItemDto.toEntity(): BookshelfEntity = BookshelfEntity(
     addedAt = addedAt,
     updatedAt = updatedAt,
     deletedAt = deletedAt,
+    categoryIdsJson = encodeStringListJson(categoryIds),
+    genresJson = encodeStringListJson(genres),
+    status = status.ifBlank { "unknown" },
 )
 
 internal fun ReadingProgressEntity.toDto(): ReadingProgressDto = ReadingProgressDto(
@@ -323,6 +395,7 @@ internal fun ReadingProgressEntity.toDto(): ReadingProgressDto = ReadingProgress
     totalParagraphs = totalParagraphs,
     deviceLabel = deviceLabel,
     updatedAt = updatedAt,
+    historyHiddenAt = historyHiddenAt,
 )
 
 internal fun ReadingProgressDto.toEntity(): ReadingProgressEntity = ReadingProgressEntity(
@@ -338,4 +411,5 @@ internal fun ReadingProgressDto.toEntity(): ReadingProgressEntity = ReadingProgr
     totalParagraphs = totalParagraphs,
     deviceLabel = deviceLabel,
     updatedAt = updatedAt,
+    historyHiddenAt = historyHiddenAt,
 )

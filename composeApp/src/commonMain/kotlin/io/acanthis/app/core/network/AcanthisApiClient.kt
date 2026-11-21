@@ -69,7 +69,16 @@ interface AcanthisApi {
         platform: String,
         page: Int = 1,
         pageSize: Int = 20,
+        genres: List<String> = emptyList(),
+        status: String? = null,
+        query: String? = null,
     ): PaginatedNovelsResponseDto
+
+    suspend fun fetchCachedGenres(
+        baseUrl: String,
+        authToken: String?,
+        platform: String,
+    ): List<CachedGenreDto>
 
     suspend fun fetchNovelDetail(
         baseUrl: String,
@@ -231,8 +240,14 @@ class AcanthisApiClient(
         platform: String,
         page: Int,
         pageSize: Int,
+        genres: List<String>,
+        status: String?,
+        query: String?,
     ): PaginatedNovelsResponseDto {
         val encodedPlatform = requireEncodedPathPart(platform, "平台标识不能为空")
+        val cleanGenres = genres.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val cleanStatus = status?.trim()?.takeIf { it.isNotEmpty() && !it.equals("all", ignoreCase = true) }
+        val cleanQuery = query?.trim()?.takeIf { it.isNotEmpty() }
         return requestEnvelope(
             baseUrl = baseUrl,
             path = "/v1/$encodedPlatform/novels",
@@ -241,7 +256,30 @@ class AcanthisApiClient(
         ) {
             parameter("page", page.coerceAtLeast(1).toString())
             parameter("pageSize", pageSize.coerceAtLeast(1).toString())
+            if (cleanGenres.isNotEmpty()) {
+                parameter("genres", cleanGenres.joinToString(","))
+            }
+            if (cleanStatus != null) {
+                parameter("status", cleanStatus)
+            }
+            if (cleanQuery != null) {
+                parameter("q", cleanQuery)
+            }
         }
+    }
+
+    override suspend fun fetchCachedGenres(
+        baseUrl: String,
+        authToken: String?,
+        platform: String,
+    ): List<CachedGenreDto> {
+        val encodedPlatform = requireEncodedPathPart(platform, "平台标识不能为空")
+        return requestEnvelope(
+            baseUrl = baseUrl,
+            path = "/v1/$encodedPlatform/genres",
+            authToken = authToken,
+            fallbackErrorMessage = "获取服务器缓存题材标签失败",
+        )
     }
 
     override suspend fun fetchNovelDetail(
