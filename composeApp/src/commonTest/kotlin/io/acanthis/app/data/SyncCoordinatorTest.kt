@@ -731,6 +731,188 @@ class SyncCoordinatorTest {
         assertEquals(9000L, localStore.getReadingProgress("linovelib", "h2")?.historyHiddenAt)
     }
 
+    @Test
+    fun batchAddToBookshelfCreatesNewMergesExistingCategoriesAndEnqueuesDirtyOnce() = runTest {
+        val localStore = FakeLibraryLocalStore()
+        val configProvider = FakeSyncConfigProvider(
+            ServerConfig(
+                apiBaseUrl = "https://api.acanthis.test",
+                authToken = "secret",
+                deviceLabel = "TestDevice",
+                lastSyncCursor = 0L,
+                syncSchemaVersion = 2,
+            ),
+        )
+        val pushedPayloads = mutableListOf<SyncStatePushPayloadDto>()
+        val api = FakeAcanthisApi(
+            onPush = { _, _, payload ->
+                pushedPayloads += payload
+                SyncStatePushResponseDto(
+                    bookshelf = payload.bookshelf.orEmpty(),
+                    progress = payload.progress.orEmpty(),
+                    categories = payload.categories.orEmpty(),
+                    serverTime = 9000L,
+                )
+            },
+        )
+        var now = 1000L
+        val coordinator = SyncCoordinator(
+            api = api,
+            localStore = localStore,
+            configProvider = configProvider,
+            scope = backgroundScope,
+            clock = { now },
+            debounceMs = 1000L,
+        )
+        val repository = LibraryRepository(
+            localStore = localStore,
+            syncCoordinator = coordinator,
+            configProvider = configProvider,
+            clock = { now },
+        )
+
+        val catKeep = repository.createCategory("追更")
+        val catNew = repository.createCategory("待看")
+        val catDeleted = repository.createCategory("旧分组")
+        now = 1500L
+        repository.deleteCategory(catDeleted.id)
+
+        // 预先准备一本已在书架中的书（含有效分组 catKeep 和已删除分组 catDeleted）和一本已软删除的书
+        localStore.upsertBookshelfItem(
+            BookshelfEntity(
+                platform = "linovelib",
+                novelId = "existing-1",
+                title = "旧标题",
+                author = "旧作者",
+                coverUrl = "/v1/linovelib/cover/novel/existing-1",
+                addedAt = 500L,
+                updatedAt = 800L,
+                deletedAt = null,
+                categoryIdsJson = encodeStringListJson(listOf(catKeep.id, catDeleted.id)),
+                genresJson = "[]",
+                status = "unknown",
+            ),
+        )
+        localStore.upsertBookshelfItem(
+            BookshelfEntity(
+                platform = "linovelib",
+                novelId = "deleted-1",
+                title = "已移出的书",
+                author = "作者B",
+                coverUrl = "/v1/linovelib/cover/novel/deleted-1",
+                addedAt = 400L,
+                updatedAt = 900L,
+                deletedAt = 900L,
+                categoryIdsJson = encodeStringListJson(listOf(catKeep.id)),
+                genresJson = "[]",
+                status = "unknown",
+            ),
+        )
+
+        // 清空前面建分类触发的 debounce
+        advanceTimeBy(1500L)
+        runCurrent()
+        pushedPayloads.clear()
+
+        now = 3000L
+        val count = repository.batchAddToBookshelf(
+            entries = listOf(
+                BatchBookshelfEntry(
+                    platform = "linovelib",
+                    novelId = "existing-1",
+                    title = "已收藏作品",
+                    author = "作者A",
+                    coverUrl = "/v1/linovelib/cover/novel/existing-1",
+                    genres = listOf("奇幻", "冒险"),
+                    status = "ongoing",
+                ),
+                // 同键重复项应自动去重
+                BatchBookshelfEntry(
+                    platform = "linovelib",
+                    novelId = "existing-1",
+                    title = "重复标题应忽略",
+                ),
+                BatchBookshelfEntry(
+                    platform = "linovelib",
+                    novelId = "deleted-1",
+                    title = "恢复入库作品",
+                    author = "作者B",
+                    coverUrl = "/v1/linovelib/cover/novel/deleted-1",
+                    status = "completed",
+                ),
+                BatchBookshelfEntry(
+                    platform = "linovelib",
+                    novelId = "fresh-1",
+                    title = "全新作品",
+                    author = "作者C",
+                    coverUrl = "/v1/linovelib/cover/novel/fresh-1",
+                    genres = listOf("校园"),
+                    status = "ongoing",
+                ),
+            ),
+            categoryIds = listOf(catNew.id, catDeleted.id),
+        )
+
+        assertEquals(3, count)
+
+        val existingItem = localStore.getBookshelfItem("linovelib", "existing-1")
+        assertNotNull(existingItem)
+        assertEquals(500L, existingItem.addedAt) // 保留原有 addedAt
+        assertEquals(3000L, existingItem.updatedAt)
+        assertNull(existingItem.deletedAt)
+        assertEquals(listOf(catKeep.id, catNew.id), decodeStringListJson(existingItem.categoryIdsJson))
+        assertEquals(listOf("奇幻", "冒险"), decodeStringListJson(existingItem.genresJson))
+        assertEquals("ongoing", existingItem.status)
+
+        val restoredItem = localStore.getBookshelfItem("linovelib", "deleted-1")
+        assertNotNull(restoredItem)
+        assertEquals(3000L, restoredItem.addedAt)
+        assertNull(restoredItem.deletedAt)
+        assertEquals(listOf(catNew.id), decodeStringListJson(restoredItem.categoryIdsJson))
+        assertEquals("completed", restoredItem.status)
+
+        val freshItem = localStore.getBookshelfItem("linovelib", "fresh-1")
+        assertNotNull(freshItem)
+        assertEquals(3000L, freshItem.addedAt)
+        assertNull(freshItem.deletedAt)
+        assertEquals(listOf(catNew.id), decodeStringListJson(freshItem.categoryIdsJson))
+        assertEquals(listOf("校园"), decodeStringListJson(freshItem.genresJson))
+
+        // 三本书均进入脏队列
+        val dirtyKeys = localStore.getDirtyEntries().map { it.key }.toSet()
+        assertTrue(DirtySyncEntity.makeKey(DirtySyncEntity.KIND_BOOKSHELF, "linovelib", "existing-1") in dirtyKeys)
+        assertTrue(DirtySyncEntity.makeKey(DirtySyncEntity.KIND_BOOKSHELF, "linovelib", "deleted-1") in dirtyKeys)
+        assertTrue(DirtySyncEntity.makeKey(DirtySyncEntity.KIND_BOOKSHELF, "linovelib", "fresh-1") in dirtyKeys)
+
+        // 统一触发一次防抖推送
+        advanceTimeBy(1000L)
+        runCurrent()
+        assertEquals(1, pushedPayloads.size)
+        assertEquals(3, pushedPayloads.single().bookshelf?.size)
+
+        // 传入空 categoryIds 时，已收藏书应保留原分组不清空
+        now = 4000L
+        val secondCount = repository.batchAddToBookshelf(
+            entries = listOf(
+                BatchBookshelfEntry(
+                    platform = "linovelib",
+                    novelId = "existing-1",
+                    title = "已收藏作品",
+                    genres = emptyList(),
+                    status = "unknown",
+                ),
+            ),
+            categoryIds = emptyList(),
+        )
+        assertEquals(1, secondCount)
+        val afterEmptyCat = localStore.getBookshelfItem("linovelib", "existing-1")
+        assertNotNull(afterEmptyCat)
+        assertEquals(500L, afterEmptyCat.addedAt)
+        assertEquals(listOf(catKeep.id, catNew.id), decodeStringListJson(afterEmptyCat.categoryIdsJson))
+        assertEquals(listOf("奇幻", "冒险"), decodeStringListJson(afterEmptyCat.genresJson))
+        assertEquals("ongoing", afterEmptyCat.status)
+    }
+
     private fun sampleBookshelf(
         platform: String = "linovelib",
         novelId: String,

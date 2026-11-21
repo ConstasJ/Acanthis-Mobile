@@ -9,6 +9,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.random.Random
 
+data class BatchBookshelfEntry(
+    val platform: String,
+    val novelId: String,
+    val title: String,
+    val author: String = "",
+    val coverUrl: String = "",
+    val genres: List<String> = emptyList(),
+    val status: String = "unknown",
+)
+
 class LibraryRepository(
     private val localStore: LibraryLocalStore,
     private val syncCoordinator: SyncCoordinator,
@@ -215,6 +225,103 @@ class LibraryRepository(
         enqueueBookshelfDirty(platform, novelId, now)
         syncCoordinator.scheduleDebouncedPush()
         return added
+    }
+
+    suspend fun batchAddToBookshelf(
+        entries: List<BatchBookshelfEntry>,
+        categoryIds: List<String> = emptyList(),
+    ): Int {
+        val uniqueEntries = LinkedHashMap<Pair<String, String>, BatchBookshelfEntry>()
+        entries.forEach { entry ->
+            val platform = entry.platform.trim()
+            val novelId = entry.novelId.trim()
+            if (platform.isNotEmpty() && novelId.isNotEmpty()) {
+                val key = platform to novelId
+                if (key !in uniqueEntries) {
+                    uniqueEntries[key] = entry.copy(platform = platform, novelId = novelId)
+                }
+            }
+        }
+        if (uniqueEntries.isEmpty()) {
+            return 0
+        }
+
+        val deletedCategoryIds = localStore.getAllCategories()
+            .filter { it.deletedAt != null }
+            .mapTo(HashSet()) { it.id }
+        val normalizedNewCategoryIds = categoryIds
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it !in deletedCategoryIds }
+            .distinct()
+
+        val now = clock()
+        val updatedItems = mutableListOf<BookshelfEntity>()
+
+        uniqueEntries.values.forEach { entry ->
+            val existing = localStore.getBookshelfItem(entry.platform, entry.novelId)
+            val isCurrentlyActive = existing != null && existing.deletedAt == null
+            val cleanedGenres = entry.genres.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            val normalizedStatus = entry.status.trim().ifBlank { "unknown" }
+
+            val resolvedGenresJson = if (cleanedGenres.isNotEmpty()) {
+                encodeStringListJson(cleanedGenres)
+            } else {
+                existing?.genresJson ?: "[]"
+            }
+            val resolvedStatus = if (normalizedStatus != "unknown") {
+                normalizedStatus
+            } else {
+                existing?.status?.takeIf { it.isNotBlank() } ?: "unknown"
+            }
+
+            val updatedAt = if (existing != null) {
+                maxOf(now, existing.updatedAt + 1L)
+            } else {
+                now
+            }
+
+            val item = if (isCurrentlyActive) {
+                val existingValidCategoryIds = decodeStringListJson(existing.categoryIdsJson)
+                    .filter { it !in deletedCategoryIds }
+                val mergedCategoryIds = if (normalizedNewCategoryIds.isNotEmpty()) {
+                    (existingValidCategoryIds + normalizedNewCategoryIds).distinct()
+                } else {
+                    existingValidCategoryIds
+                }
+                existing.copy(
+                    title = entry.title.trim().ifBlank { existing.title },
+                    author = entry.author.trim().ifBlank { existing.author },
+                    coverUrl = entry.coverUrl.trim().ifBlank { existing.coverUrl },
+                    categoryIdsJson = encodeStringListJson(mergedCategoryIds),
+                    genresJson = resolvedGenresJson,
+                    status = resolvedStatus,
+                    updatedAt = updatedAt,
+                    deletedAt = null,
+                )
+            } else {
+                BookshelfEntity(
+                    platform = entry.platform,
+                    novelId = entry.novelId,
+                    title = entry.title.trim().ifBlank { existing?.title.orEmpty() },
+                    author = entry.author.trim().ifBlank { existing?.author.orEmpty() },
+                    coverUrl = entry.coverUrl.trim().ifBlank { existing?.coverUrl.orEmpty() },
+                    addedAt = now,
+                    updatedAt = updatedAt,
+                    deletedAt = null,
+                    categoryIdsJson = encodeStringListJson(normalizedNewCategoryIds),
+                    genresJson = resolvedGenresJson,
+                    status = resolvedStatus,
+                )
+            }
+            updatedItems += item
+        }
+
+        localStore.upsertBookshelfItems(updatedItems)
+        updatedItems.forEach { item ->
+            enqueueBookshelfDirty(item.platform, item.novelId, item.updatedAt)
+        }
+        syncCoordinator.scheduleDebouncedPush()
+        return updatedItems.size
     }
 
     suspend fun removeFromBookshelf(platform: String, novelId: String) {
