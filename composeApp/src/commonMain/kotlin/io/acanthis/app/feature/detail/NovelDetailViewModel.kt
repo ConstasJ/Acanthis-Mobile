@@ -2,18 +2,21 @@ package io.acanthis.app.feature.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.acanthis.app.core.database.BookshelfCategoryEntity
 import io.acanthis.app.core.database.ReadingProgressEntity
 import io.acanthis.app.core.network.ApiException
 import io.acanthis.app.core.network.ChapterDto
 import io.acanthis.app.core.network.NovelDto
 import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.data.ReaderRepository
+import io.acanthis.app.data.decodeStringListJson
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -42,6 +45,8 @@ data class NovelDetailUiState(
     val errorMessage: String? = null,
     val isInBookshelf: Boolean = false,
     val isTogglingBookshelf: Boolean = false,
+    val categories: List<BookshelfCategoryEntity> = emptyList(),
+    val bookshelfCategoryIds: List<String> = emptyList(),
     val progress: ReadingProgressEntity? = null,
     val cachedChapterIds: Set<String> = emptySet(),
     val isReversed: Boolean = false,
@@ -90,13 +95,27 @@ class NovelDetailViewModel(
         )
     }
 
+    private val shelfMembershipFlow = combine(
+        libraryRepository.observeActiveCategories(),
+        libraryRepository.observeActiveBookshelf().map { items ->
+            items.firstOrNull { it.platform == platform && it.novelId == novelId }
+        },
+    ) { categories, activeItem ->
+        val activeIds = categories.mapTo(HashSet()) { it.id }
+        val effectiveCategoryIds = activeItem
+            ?.let { decodeStringListJson(it.categoryIdsJson).filter { id -> id in activeIds } }
+            .orEmpty()
+        Triple(activeItem != null, categories, effectiveCategoryIds)
+    }
+
     val uiState: StateFlow<NovelDetailUiState> = combine(
         detailFlow,
         readerRepository.observeCachedChapterIds(platform, novelId),
-        libraryRepository.observeIsInBookshelf(platform, novelId),
+        shelfMembershipFlow,
         libraryRepository.observeProgress(platform, novelId),
         controlsState,
-    ) { detailState, cachedChapterIds, isInBookshelf, progress, controls ->
+    ) { detailState, cachedChapterIds, shelfMembership, progress, controls ->
+        val (isInBookshelf, categories, bookshelfCategoryIds) = shelfMembership
         val novel = detailState.novel
         val progressChapterId = progress?.chapterId?.trim()?.takeIf { it.isNotEmpty() }
 
@@ -139,6 +158,8 @@ class NovelDetailViewModel(
             errorMessage = detailState.error?.toFriendlyErrorMessage(),
             isInBookshelf = isInBookshelf,
             isTogglingBookshelf = controls.isTogglingBookshelf,
+            categories = categories,
+            bookshelfCategoryIds = bookshelfCategoryIds,
             progress = progress,
             cachedChapterIds = cachedChapterIds,
             isReversed = controls.isReversed,
@@ -194,10 +215,25 @@ class NovelDetailViewModel(
                     title = title,
                     author = author,
                     coverUrl = coverUrl,
+                    genres = novel?.genres.orEmpty(),
+                    status = novel?.status ?: "unknown",
                 )
             } finally {
                 controlsState.update { it.copy(isTogglingBookshelf = false) }
             }
+        }
+    }
+
+    fun setBookshelfCategories(categoryIds: List<String>) {
+        viewModelScope.launch {
+            libraryRepository.setBookshelfCategories(platform, novelId, categoryIds)
+        }
+    }
+
+    fun createCategory(name: String, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { libraryRepository.createCategory(name) }
+                .onFailure { onError(it.message ?: "创建书架失败") }
         }
     }
 

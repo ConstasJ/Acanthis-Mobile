@@ -32,6 +32,10 @@ class ExploreRepositoryTest {
         var lastCachedPlatform: String? = null
         var lastCachedPage: Int? = null
         var lastCachedPageSize: Int? = null
+        var lastCachedGenres: List<String>? = null
+        var lastCachedStatus: String? = null
+        var lastCachedQuery: String? = null
+        var lastCachedGenresPlatform: String? = null
 
         override suspend fun fetchExploreSchema(
             baseUrl: String,
@@ -163,6 +167,9 @@ class ExploreRepositoryTest {
             lastCachedPlatform = platform
             lastCachedPage = page
             lastCachedPageSize = pageSize
+            lastCachedGenres = genres
+            lastCachedStatus = status
+            lastCachedQuery = query
             return PaginatedNovelsResponseDto(
                 items = listOf(
                     NovelInfoDto(
@@ -188,7 +195,13 @@ class ExploreRepositoryTest {
             baseUrl: String,
             authToken: String?,
             platform: String,
-        ): List<CachedGenreDto> = emptyList()
+        ): List<CachedGenreDto> {
+            lastCachedGenresPlatform = platform
+            return listOf(
+                CachedGenreDto(name = "奇幻", count = 10),
+                CachedGenreDto(name = "校园", count = 5),
+            )
+        }
 
         override suspend fun fetchChapterContent(
             baseUrl: String,
@@ -348,5 +361,35 @@ class ExploreRepositoryTest {
         assertFailsWith<IllegalArgumentException> {
             repo.getCachedNovels(platform = "   ")
         }
+    }
+
+    @Test
+    fun getCachedNovelsForwardsFilterParamsAndGetCachedGenresReturnsList() = runTest {
+        val api = FakeExploreApi()
+        val repo = ExploreRepository(
+            api = api,
+            configProvider = {
+                ServerConfig(
+                    apiBaseUrl = "https://api.example.com",
+                    deviceLabel = "test-device",
+                )
+            },
+        )
+
+        repo.getCachedNovels(
+            platform = "linovelib",
+            page = 1,
+            pageSize = 20,
+            genres = listOf("奇幻", "校园"),
+            status = "ongoing",
+            query = "异世界",
+        )
+        assertEquals(listOf("奇幻", "校园"), api.lastCachedGenres)
+        assertEquals("ongoing", api.lastCachedStatus)
+        assertEquals("异世界", api.lastCachedQuery)
+
+        val genres = repo.getCachedGenres(" linovelib ")
+        assertEquals("linovelib", api.lastCachedGenresPlatform)
+        assertEquals(listOf("奇幻", "校园"), genres.map { it.name })
     }
 }

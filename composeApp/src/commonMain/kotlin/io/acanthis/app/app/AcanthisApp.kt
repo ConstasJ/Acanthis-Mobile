@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,12 +46,15 @@ import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
 import io.acanthis.app.data.LibraryRepository
 import io.acanthis.app.feature.bookshelf.BookshelfScreen
+import io.acanthis.app.feature.bookshelf.BookshelfViewModel
 import io.acanthis.app.feature.detail.NovelDetailScreen
 import io.acanthis.app.feature.explore.ExploreScreen
+import io.acanthis.app.feature.explore.ExploreViewModel
 import io.acanthis.app.feature.history.HistoryScreen
 import io.acanthis.app.feature.reader.ReaderScreen
 import io.acanthis.app.feature.settings.SettingsScreen
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 private enum class TopLevelTab(
     val label: String,
@@ -90,6 +96,8 @@ fun AcanthisApp(
             initialValue = ServerConfig(),
         )
         val navController = rememberNavController()
+        var pendingBookshelfGenre by remember { mutableStateOf<String?>(null) }
+        var pendingExploreCachedGenre by remember { mutableStateOf<String?>(null) }
         val backStackEntry by navController.currentBackStackEntryAsState()
         val currentDestination = backStackEntry?.destination
         val showBottomBar = currentDestination == null ||
@@ -144,6 +152,14 @@ fun AcanthisApp(
                     startDestination = BookshelfRoute,
                 ) {
                     composable<BookshelfRoute> {
+                        val bookshelfViewModel: BookshelfViewModel = koinViewModel()
+                        LaunchedEffect(pendingBookshelfGenre) {
+                            val genre = pendingBookshelfGenre
+                            if (!genre.isNullOrBlank()) {
+                                bookshelfViewModel.applyGenreFilterFromOutside(genre)
+                                pendingBookshelfGenre = null
+                            }
+                        }
                         BookshelfScreen(
                             onOpenNovel = { platform, novelId ->
                                 navController.navigate(
@@ -160,6 +176,11 @@ fun AcanthisApp(
                                 )
                             },
                             onOpenSettings = { navigateToTab(TopLevelTab.Settings) },
+                            onExploreCachedGenre = { genre ->
+                                pendingExploreCachedGenre = genre
+                                navigateToTab(TopLevelTab.Explore)
+                            },
+                            viewModel = bookshelfViewModel,
                         )
                     }
 
@@ -184,6 +205,14 @@ fun AcanthisApp(
                     }
 
                     composable<ExploreRoute> {
+                        val exploreViewModel: ExploreViewModel = koinViewModel()
+                        LaunchedEffect(pendingExploreCachedGenre) {
+                            val genre = pendingExploreCachedGenre
+                            if (!genre.isNullOrBlank()) {
+                                exploreViewModel.openCachedWithGenre(genre)
+                                pendingExploreCachedGenre = null
+                            }
+                        }
                         ExploreScreen(
                             onOpenNovel = { platform, novelId ->
                                 navController.navigate(
@@ -191,6 +220,7 @@ fun AcanthisApp(
                                 )
                             },
                             onOpenSettings = { navigateToTab(TopLevelTab.Settings) },
+                            viewModel = exploreViewModel,
                         )
                     }
 
@@ -212,6 +242,10 @@ fun AcanthisApp(
                                         chapterId = chapterId,
                                     ),
                                 )
+                            },
+                            onGenreClick = { genre ->
+                                pendingBookshelfGenre = genre
+                                navigateToTab(TopLevelTab.Bookshelf)
                             },
                         )
                     }

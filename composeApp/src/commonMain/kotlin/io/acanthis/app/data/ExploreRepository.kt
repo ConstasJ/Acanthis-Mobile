@@ -1,6 +1,7 @@
 package io.acanthis.app.data
 
 import io.acanthis.app.core.network.AcanthisApi
+import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
 import io.acanthis.app.core.network.ExploreNovelItemDto
 import io.acanthis.app.core.network.ExplorePageDto
@@ -181,6 +182,9 @@ class ExploreRepository(
         platform: String,
         page: Int = 1,
         pageSize: Int = DEFAULT_CACHED_PAGE_SIZE,
+        genres: List<String> = emptyList(),
+        status: String? = null,
+        query: String? = null,
     ): PaginatedNovelsResponseDto {
         val cleanPlatform = platform.trim()
         require(cleanPlatform.isNotEmpty()) { "平台标识不能为空" }
@@ -191,6 +195,9 @@ class ExploreRepository(
             platform = cleanPlatform,
             page = page,
             pageSize = pageSize,
+            genres = genres,
+            status = status,
+            query = query,
         )
         return response.copy(
             items = response.items.map { item ->
@@ -199,6 +206,17 @@ class ExploreRepository(
                     coverUrl = item.coverUrl?.let { rebaseMediaUrlWithBase(it, baseUrl) },
                 )
             },
+        )
+    }
+
+    suspend fun getCachedGenres(platform: String): List<CachedGenreDto> {
+        val cleanPlatform = platform.trim()
+        require(cleanPlatform.isNotEmpty()) { "平台标识不能为空" }
+        val (baseUrl, authToken) = resolveServerTarget()
+        return api.fetchCachedGenres(
+            baseUrl = baseUrl,
+            authToken = authToken,
+            platform = cleanPlatform,
         )
     }
 

@@ -62,9 +62,14 @@ class ExploreViewModelTest {
             { _, page, pageSize ->
                 PaginatedNovelsResponseDto(items = emptyList(), total = 0, page = page, pageSize = pageSize)
             },
+        var cachedGenresHandler: suspend (platform: String) -> List<CachedGenreDto> = { emptyList() },
     ) : AcanthisApi {
         var schemaCalls = 0
         var cachedCalls = 0
+        var lastCachedGenresParam: List<String> = emptyList()
+        var lastCachedStatusParam: String? = null
+        var lastCachedQueryParam: String? = null
+        var lastCachedPageParam: Int = 0
 
         override suspend fun fetchSources(
             baseUrl: String,
@@ -98,6 +103,10 @@ class ExploreViewModelTest {
             query: String?,
         ): PaginatedNovelsResponseDto {
             cachedCalls++
+            lastCachedGenresParam = genres
+            lastCachedStatusParam = status
+            lastCachedQueryParam = query
+            lastCachedPageParam = page
             return cachedHandler(platform, page, pageSize)
         }
 
@@ -105,7 +114,7 @@ class ExploreViewModelTest {
             baseUrl: String,
             authToken: String?,
             platform: String,
-        ): List<CachedGenreDto> = emptyList()
+        ): List<CachedGenreDto> = cachedGenresHandler(platform)
 
         override suspend fun checkHealth(baseUrl: String): HealthResponse = error("Not used")
         override suspend fun fetchRankings(
@@ -355,5 +364,68 @@ class ExploreViewModelTest {
         assertEquals(schemaCallsBeforeSwitch, api.schemaCalls)
         assertEquals(ExploreMode.CACHED, state.mode)
         assertEquals(listOf("s1"), state.cachedItems.map { it.id })
+    }
+
+    @Test
+    fun cachedTabLoadsGenresAndFiltersResetToPageOne() = runTest(testDispatcher) {
+        val api = FakeExploreViewModelApi(
+            sources = listOf(
+                NovelSourceDescriptor(id = "linovelib", name = "哔哩轻小说", capabilities = listOf("explore", "search")),
+            ),
+            cachedGenresHandler = {
+                listOf(
+                    CachedGenreDto(name = "奇幻", count = 12),
+                    CachedGenreDto(name = "校园", count = 5),
+                )
+            },
+            cachedHandler = { platform, page, pageSize ->
+                PaginatedNovelsResponseDto(
+                    items = listOf(NovelInfoDto(id = "c-$page", platform = platform, title = "缓存作品")),
+                    total = 1,
+                    page = page,
+                    pageSize = pageSize,
+                )
+            },
+        )
+        val configFlow = MutableStateFlow(configuredServerConfig())
+        val repo = ExploreRepository(api = api, configProvider = { configFlow.value })
+        val viewModel = ExploreViewModel.createForTest(exploreRepository = repo, configFlow = configFlow)
+        advanceUntilIdle()
+
+        // 外部跳转直达服务器缓存并预选标签
+        viewModel.openCachedWithGenre("奇幻")
+        advanceUntilIdle()
+
+        assertEquals(ExploreMode.CACHED, viewModel.uiState.value.mode)
+        assertEquals(setOf("奇幻"), viewModel.uiState.value.selectedCachedGenres)
+        assertEquals(listOf("奇幻", "校园"), viewModel.uiState.value.cachedGenres.map { it.name })
+        assertEquals(listOf("奇幻"), api.lastCachedGenresParam)
+        assertEquals(1, api.lastCachedPageParam)
+
+        // 追加多选标签 + 连载状态 + 搜索词
+        viewModel.toggleCachedGenre("校园")
+        advanceUntilIdle()
+        assertEquals(setOf("奇幻", "校园"), api.lastCachedGenresParam.toSet())
+        assertEquals(1, api.lastCachedPageParam)
+
+        viewModel.selectCachedStatus("ongoing")
+        advanceUntilIdle()
+        assertEquals("ongoing", api.lastCachedStatusParam)
+        assertEquals(1, api.lastCachedPageParam)
+
+        viewModel.onCachedSearchQueryChange("转生")
+        advanceUntilIdle()
+        assertEquals("转生", api.lastCachedQueryParam)
+        assertEquals(1, api.lastCachedPageParam)
+
+        // 重置筛选
+        viewModel.resetCachedFilters()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.selectedCachedGenres.isEmpty())
+        assertNull(viewModel.uiState.value.selectedCachedStatus)
+        assertEquals("", viewModel.uiState.value.cachedSearchQuery)
+        assertTrue(api.lastCachedGenresParam.isEmpty())
+        assertNull(api.lastCachedStatusParam)
+        assertNull(api.lastCachedQueryParam)
     }
 }

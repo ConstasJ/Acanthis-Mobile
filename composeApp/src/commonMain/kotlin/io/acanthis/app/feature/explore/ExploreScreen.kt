@@ -159,6 +159,10 @@ fun ExploreScreen(
                     onRefresh = viewModel::refreshCurrentTab,
                     onLoadMore = viewModel::loadNextCachedPage,
                     onOpenNovel = onOpenNovel,
+                    onCachedSearchQueryChange = viewModel::onCachedSearchQueryChange,
+                    onSelectCachedStatus = viewModel::selectCachedStatus,
+                    onToggleCachedGenre = viewModel::toggleCachedGenre,
+                    onResetCachedFilters = viewModel::resetCachedFilters,
                 )
             }
 
@@ -792,8 +796,15 @@ private fun ExploreCachedContent(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenNovel: (String, String) -> Unit,
+    onCachedSearchQueryChange: (String) -> Unit,
+    onSelectCachedStatus: (String?) -> Unit,
+    onToggleCachedGenre: (String) -> Unit,
+    onResetCachedFilters: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val hasCachedFilters = uiState.selectedCachedGenres.isNotEmpty() ||
+        uiState.selectedCachedStatus != null ||
+        uiState.cachedSearchQuery.isNotBlank()
 
     val shouldTriggerLoadMore by remember(
         uiState.cachedHasNextPage,
@@ -829,28 +840,95 @@ private fun ExploreCachedContent(
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item(key = "cached-header") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+            item(key = "cached-filters") {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = "服务器缓存 · 共 ${uiState.cachedTotal} 部",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    OutlinedTextField(
+                        value = uiState.cachedSearchQuery,
+                        onValueChange = onCachedSearchQueryChange,
+                        placeholder = { Text("在服务器缓存中按书名/作者筛选…") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(20.dp),
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Search, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (uiState.cachedSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onCachedSearchQueryChange("") }) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "清空筛选关键词")
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                     )
-                    IconButton(
-                        onClick = onRefresh,
-                        enabled = !uiState.isLoadingCached,
+
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = "刷新服务器缓存",
+                        val statusOptions = listOf(
+                            null to "全部状态",
+                            "ongoing" to "连载中",
+                            "completed" to "已完结",
                         )
+                        items(statusOptions, key = { it.first ?: "all" }) { (value, label) ->
+                            FilterChip(
+                                selected = uiState.selectedCachedStatus == value,
+                                onClick = { onSelectCachedStatus(value) },
+                                label = { Text(label) },
+                            )
+                        }
                     }
+
+                    if (uiState.cachedGenres.isNotEmpty()) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(uiState.cachedGenres, key = { it.name }) { genre ->
+                                FilterChip(
+                                    selected = genre.name in uiState.selectedCachedGenres,
+                                    onClick = { onToggleCachedGenre(genre.name) },
+                                    label = { Text("${genre.name} (${genre.count})") },
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "服务器缓存 · 共 ${uiState.cachedTotal} 部",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (hasCachedFilters) {
+                                TextButton(onClick = onResetCachedFilters) {
+                                    Text("重置筛选")
+                                }
+                            }
+                            IconButton(
+                                onClick = onRefresh,
+                                enabled = !uiState.isLoadingCached,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = "刷新服务器缓存",
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider()
                 }
             }
 

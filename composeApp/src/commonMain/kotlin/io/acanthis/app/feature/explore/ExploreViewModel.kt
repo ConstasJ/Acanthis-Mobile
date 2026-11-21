@@ -3,6 +3,7 @@ package io.acanthis.app.feature.explore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.acanthis.app.core.network.ApiException
+import io.acanthis.app.core.network.CachedGenreDto
 import io.acanthis.app.core.network.ExploreHomeDataDto
 import io.acanthis.app.core.network.ExploreNovelItemDto
 import io.acanthis.app.core.network.ExploreSchemaDto
@@ -84,6 +85,11 @@ data class ExploreUiState(
     val isLoadingCached: Boolean = false,
     val isLoadingMoreCached: Boolean = false,
     val cachedError: ExploreErrorState? = null,
+    val cachedGenres: List<CachedGenreDto> = emptyList(),
+    val isLoadingCachedGenres: Boolean = false,
+    val selectedCachedGenres: Set<String> = emptySet(),
+    val selectedCachedStatus: String? = null,
+    val cachedSearchQuery: String = "",
     // SEARCH
     val searchQuery: String = "",
     val submittedQuery: String = "",
@@ -153,6 +159,8 @@ class ExploreViewModel private constructor(
     private var rankingsJob: Job? = null
     private var catalogJob: Job? = null
     private var cachedJob: Job? = null
+    private var cachedGenresJob: Job? = null
+    private var cachedSearchDebounceJob: Job? = null
     private var searchJob: Job? = null
     private var searchCooldownJob: Job? = null
     private var retryCountdownJob: Job? = null
@@ -230,6 +238,11 @@ class ExploreViewModel private constructor(
                 isLoadingCached = false,
                 isLoadingMoreCached = false,
                 cachedError = null,
+                cachedGenres = emptyList(),
+                isLoadingCachedGenres = false,
+                selectedCachedGenres = emptySet(),
+                selectedCachedStatus = null,
+                cachedSearchQuery = "",
                 searchResults = emptyList(),
                 searchError = null,
             )
@@ -514,6 +527,98 @@ class ExploreViewModel private constructor(
         )
     }
 
+    fun toggleCachedGenre(genre: String) {
+        val clean = genre.trim()
+        if (clean.isEmpty()) return
+        _uiState.update { state ->
+            val next = if (clean in state.selectedCachedGenres) {
+                state.selectedCachedGenres - clean
+            } else {
+                state.selectedCachedGenres + clean
+            }
+            state.copy(
+                selectedCachedGenres = next,
+                cachedItems = emptyList(),
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                cachedError = null,
+            )
+        }
+        loadCached(page = 1, append = false)
+    }
+
+    fun selectCachedStatus(status: String?) {
+        val clean = status?.trim()?.takeIf { it.isNotEmpty() && !it.equals("all", ignoreCase = true) }
+        if (clean == _uiState.value.selectedCachedStatus) return
+        _uiState.update { state ->
+            state.copy(
+                selectedCachedStatus = clean,
+                cachedItems = emptyList(),
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                cachedError = null,
+            )
+        }
+        loadCached(page = 1, append = false)
+    }
+
+    fun onCachedSearchQueryChange(query: String) {
+        _uiState.update { it.copy(cachedSearchQuery = query) }
+        cachedSearchDebounceJob?.cancel()
+        cachedSearchDebounceJob = viewModelScope.launch {
+            delay(300L)
+            _uiState.update {
+                it.copy(
+                    cachedItems = emptyList(),
+                    cachedPage = 1,
+                    cachedHasNextPage = false,
+                    cachedError = null,
+                )
+            }
+            loadCached(page = 1, append = false)
+        }
+    }
+
+    fun resetCachedFilters() {
+        cachedSearchDebounceJob?.cancel()
+        _uiState.update {
+            it.copy(
+                selectedCachedGenres = emptySet(),
+                selectedCachedStatus = null,
+                cachedSearchQuery = "",
+                cachedItems = emptyList(),
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                cachedError = null,
+            )
+        }
+        loadCached(page = 1, append = false)
+    }
+
+    fun openCachedWithGenre(genre: String) {
+        val clean = genre.trim()
+        if (clean.isEmpty()) return
+        cachedSearchDebounceJob?.cancel()
+        searchJob?.cancel()
+        _uiState.update { state ->
+            state.copy(
+                mode = ExploreMode.CACHED,
+                activeBrowseMode = ExploreMode.CACHED,
+                selectedCachedGenres = setOf(clean),
+                selectedCachedStatus = null,
+                cachedSearchQuery = "",
+                cachedItems = emptyList(),
+                cachedPage = 1,
+                cachedHasNextPage = false,
+                cachedError = null,
+            )
+        }
+        if (_uiState.value.isServerConfigured) {
+            loadCachedGenres(forceRefresh = false)
+            loadCached(page = 1, append = false)
+        }
+    }
+
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
         if (query.isBlank() && _uiState.value.mode == ExploreMode.SEARCH) {
@@ -694,6 +799,7 @@ class ExploreViewModel private constructor(
         val state = _uiState.value
         if (!state.isServerConfigured) return
         if (tab == ExploreMode.CACHED) {
+            loadCachedGenres(forceRefresh = forceReload)
             if (forceReload || (state.cachedItems.isEmpty() && !state.isLoadingCached)) {
                 loadCached(page = 1, append = false)
             }
@@ -897,12 +1003,45 @@ class ExploreViewModel private constructor(
         }
     }
 
+    private fun loadCachedGenres(forceRefresh: Boolean) {
+        val state = _uiState.value
+        if (!state.isServerConfigured) return
+        if (!forceRefresh && (state.cachedGenres.isNotEmpty() || state.isLoadingCachedGenres)) {
+            return
+        }
+        val platform = state.selectedPlatform
+        cachedGenresJob?.cancel()
+        cachedGenresJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingCachedGenres = true) }
+            try {
+                val genres = exploreRepository.getCachedGenres(platform = platform)
+                _uiState.update {
+                    it.copy(
+                        cachedGenres = genres,
+                        isLoadingCachedGenres = false,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                _uiState.update { it.copy(isLoadingCachedGenres = false) }
+            }
+        }
+    }
+
     private fun loadCached(
         page: Int,
         append: Boolean,
     ) {
-        val platform = _uiState.value.selectedPlatform
-        val pageSize = _uiState.value.cachedPageSize.coerceAtLeast(1)
+        val stateSnapshot = _uiState.value
+        val platform = stateSnapshot.selectedPlatform
+        val pageSize = stateSnapshot.cachedPageSize.coerceAtLeast(1)
+        val genres = stateSnapshot.selectedCachedGenres.toList()
+        val status = stateSnapshot.selectedCachedStatus
+        val query = stateSnapshot.cachedSearchQuery.trim().takeIf { it.isNotEmpty() }
+        if (!append && stateSnapshot.cachedGenres.isEmpty() && !stateSnapshot.isLoadingCachedGenres) {
+            loadCachedGenres(forceRefresh = false)
+        }
         cachedJob?.cancel()
         cachedJob = viewModelScope.launch {
             _uiState.update {
@@ -917,6 +1056,9 @@ class ExploreViewModel private constructor(
                     platform = platform,
                     page = page,
                     pageSize = pageSize,
+                    genres = genres,
+                    status = status,
+                    query = query,
                 )
                 val mappedItems = response.items.map { it.toExploreNovelItem(fallbackPlatform = platform) }
                 _uiState.update { state ->
@@ -1058,6 +1200,8 @@ class ExploreViewModel private constructor(
         rankingsJob?.cancel()
         catalogJob?.cancel()
         cachedJob?.cancel()
+        cachedGenresJob?.cancel()
+        cachedSearchDebounceJob?.cancel()
         searchJob?.cancel()
         retryCountdownJob?.cancel()
     }

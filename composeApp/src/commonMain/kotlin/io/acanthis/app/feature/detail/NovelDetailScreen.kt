@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import io.acanthis.app.core.database.ReadingProgressEntity
 import io.acanthis.app.core.network.NovelDto
+import io.acanthis.app.feature.bookshelf.ShelfAssignDialog
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -78,12 +79,14 @@ fun NovelDetailScreen(
     novelId: String,
     onBack: () -> Unit,
     onOpenChapter: (platform: String, novelId: String, chapterId: String) -> Unit,
+    onGenreClick: (genre: String) -> Unit = {},
     viewModel: NovelDetailViewModel = koinViewModel(
         key = "$platform:$novelId",
         parameters = { parametersOf(platform, novelId) },
     ),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var showShelfAssignDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -150,6 +153,8 @@ fun NovelDetailScreen(
                             novel = novel,
                             uiState = uiState,
                             onToggleBookshelf = { viewModel.toggleBookshelf() },
+                            onManageShelves = { showShelfAssignDialog = true },
+                            onGenreClick = onGenreClick,
                             onStartReading = {
                                 viewModel.resolveStartChapterId()?.let { chapterId ->
                                     onOpenChapter(platform, novelId, chapterId)
@@ -168,6 +173,20 @@ fun NovelDetailScreen(
             }
         }
     }
+
+    if (showShelfAssignDialog) {
+        ShelfAssignDialog(
+            novelTitle = uiState.novel?.title?.ifBlank { novelId } ?: novelId,
+            categories = uiState.categories,
+            initialCategoryIds = uiState.bookshelfCategoryIds,
+            onDismiss = { showShelfAssignDialog = false },
+            onCreateCategory = { name, onErr -> viewModel.createCategory(name, onErr) },
+            onConfirm = { selectedIds ->
+                viewModel.setBookshelfCategories(selectedIds)
+                showShelfAssignDialog = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -175,6 +194,8 @@ private fun NovelDetailContent(
     novel: NovelDto,
     uiState: NovelDetailUiState,
     onToggleBookshelf: () -> Unit,
+    onManageShelves: () -> Unit,
+    onGenreClick: (String) -> Unit,
     onStartReading: () -> Unit,
     onToggleReverseOrder: () -> Unit,
     onToggleVolumeExpanded: (String) -> Unit,
@@ -187,6 +208,7 @@ private fun NovelDetailContent(
         item(key = "header") {
             NovelHeaderCard(
                 novel = novel,
+                onGenreClick = onGenreClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -197,10 +219,12 @@ private fun NovelDetailContent(
             ActionBarSection(
                 isInBookshelf = uiState.isInBookshelf,
                 isTogglingBookshelf = uiState.isTogglingBookshelf,
+                assignedShelfCount = uiState.bookshelfCategoryIds.size,
                 hasProgress = uiState.hasProgress,
                 canStartReading = uiState.canStartReading,
                 progress = uiState.progress,
                 onToggleBookshelf = onToggleBookshelf,
+                onManageShelves = onManageShelves,
                 onStartReading = onStartReading,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -296,6 +320,7 @@ private fun NovelDetailContent(
 @Composable
 private fun NovelHeaderCard(
     novel: NovelDto,
+    onGenreClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var summaryExpanded by rememberSaveable(novel.id) { mutableStateOf(false) }
@@ -384,6 +409,9 @@ private fun NovelHeaderCard(
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onGenreClick(genre) },
                         ) {
                             Text(
                                 text = genre,
@@ -530,10 +558,12 @@ private fun StatusBadge(
 private fun ActionBarSection(
     isInBookshelf: Boolean,
     isTogglingBookshelf: Boolean,
+    assignedShelfCount: Int,
     hasProgress: Boolean,
     canStartReading: Boolean,
     progress: ReadingProgressEntity?,
     onToggleBookshelf: () -> Unit,
+    onManageShelves: () -> Unit,
     onStartReading: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -587,6 +617,20 @@ private fun ActionBarSection(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(if (hasProgress) "继续阅读" else "开始阅读")
+            }
+        }
+
+        if (isInBookshelf) {
+            OutlinedButton(
+                onClick = onManageShelves,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                val label = if (assignedShelfCount > 0) {
+                    "管理所属书架（已加入 $assignedShelfCount 个自定义书架）"
+                } else {
+                    "管理所属书架（默认书架）"
+                }
+                Text(label)
             }
         }
 
