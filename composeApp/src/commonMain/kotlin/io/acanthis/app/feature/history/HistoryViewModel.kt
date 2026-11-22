@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.acanthis.app.core.database.ReadingProgressEntity
 import io.acanthis.app.core.network.rebaseMediaUrlWithBase
+import io.acanthis.app.core.platform.DeviceKind
 import io.acanthis.app.core.platform.currentTimeMillis
 import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
@@ -33,6 +34,7 @@ data class HistoryItemUi(
     val chapterId: String,
     val chapterTitle: String,
     val deviceLabel: String,
+    val deviceKind: String = DeviceKind.UNKNOWN,
     val timeLabel: String,
     val progressPercent: Int,
     val updatedAt: Long,
@@ -106,6 +108,7 @@ class HistoryViewModel private constructor(
                 chapterId = entity.chapterId,
                 chapterTitle = entity.chapterTitle.ifBlank { "继续阅读" },
                 deviceLabel = entity.deviceLabel,
+                deviceKind = DeviceKind.resolveDisplayKind(entity.deviceKind, entity.deviceLabel),
                 timeLabel = timeLabel,
                 progressPercent = computeProgressPercent(entity),
                 updatedAt = entity.updatedAt,

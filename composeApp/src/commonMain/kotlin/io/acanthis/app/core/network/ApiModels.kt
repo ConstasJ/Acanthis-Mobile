@@ -267,6 +267,8 @@ data class ReadingProgressDto(
     val totalParagraphs: Int = 0,
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val deviceLabel: String = "",
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val deviceKind: String = "unknown",
     val updatedAt: Long,
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val historyHiddenAt: Long? = null,

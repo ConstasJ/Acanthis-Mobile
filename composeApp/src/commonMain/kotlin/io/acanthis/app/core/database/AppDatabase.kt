@@ -20,7 +20,7 @@ import kotlinx.coroutines.IO
         NovelCacheEntity::class,
         ChapterCacheEntity::class,
     ],
-    version = 3,
+    version = 4,
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -64,9 +64,17 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
     }
 }
 
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+            "ALTER TABLE `reading_progress` ADD COLUMN `deviceKind` TEXT NOT NULL DEFAULT 'unknown'",
+        )
+    }
+}
+
 fun buildAppDatabase(builder: RoomDatabase.Builder<AppDatabase>): AppDatabase {
     return builder
-        .addMigrations(MIGRATION_2_3)
+        .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
         .fallbackToDestructiveMigration(dropAllTables = true)
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO)

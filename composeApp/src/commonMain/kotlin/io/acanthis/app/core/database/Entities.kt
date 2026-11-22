@@ -3,6 +3,7 @@ package io.acanthis.app.core.database
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import io.acanthis.app.core.platform.DeviceKind
 
 @Entity(
     tableName = "bookshelf_categories",
@@ -51,6 +52,7 @@ data class ReadingProgressEntity(
     val paragraphIndex: Int,
     val totalParagraphs: Int,
     val deviceLabel: String,
+    val deviceKind: String = DeviceKind.UNKNOWN,
     val updatedAt: Long,
     val historyHiddenAt: Long? = null,
 )

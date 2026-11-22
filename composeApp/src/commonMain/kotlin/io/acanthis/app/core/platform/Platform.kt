@@ -10,6 +10,8 @@ expect fun platformName(): String
 
 expect fun defaultDeviceLabel(): String
 
+expect fun currentDeviceKind(): String
+
 expect fun currentTimeMillis(): Long
 
 expect fun platformCacheDirectory(): String

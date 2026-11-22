@@ -35,6 +35,8 @@ actual fun defaultDeviceLabel(): String {
         .ifBlank { "Android" }
 }
 
+actual fun currentDeviceKind(): String = DeviceKind.MOBILE
+
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
 actual fun platformCacheDirectory(): String =

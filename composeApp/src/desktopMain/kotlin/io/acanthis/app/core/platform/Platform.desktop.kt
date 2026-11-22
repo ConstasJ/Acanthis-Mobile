@@ -22,6 +22,8 @@ actual fun defaultDeviceLabel(): String {
     return System.getProperty("os.name")?.trim().orEmpty().ifBlank { "Desktop" }
 }
 
+actual fun currentDeviceKind(): String = DeviceKind.DESKTOP
+
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
 actual fun platformCacheDirectory(): String {

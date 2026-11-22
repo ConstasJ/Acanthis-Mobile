@@ -9,6 +9,7 @@ import io.acanthis.app.core.network.BookshelfCategoryDto
 import io.acanthis.app.core.network.BookshelfItemDto
 import io.acanthis.app.core.network.ReadingProgressDto
 import io.acanthis.app.core.network.SyncStatePushPayloadDto
+import io.acanthis.app.core.platform.DeviceKind
 import io.acanthis.app.core.platform.currentTimeMillis
 import io.acanthis.app.core.preferences.ServerConfig
 import io.acanthis.app.core.preferences.ServerConfigStore
@@ -394,6 +395,7 @@ internal fun ReadingProgressEntity.toDto(): ReadingProgressDto = ReadingProgress
     paragraphIndex = paragraphIndex,
     totalParagraphs = totalParagraphs,
     deviceLabel = deviceLabel,
+    deviceKind = DeviceKind.normalize(deviceKind),
     updatedAt = updatedAt,
     historyHiddenAt = historyHiddenAt,
 )
@@ -410,6 +412,7 @@ internal fun ReadingProgressDto.toEntity(): ReadingProgressEntity = ReadingProgr
     paragraphIndex = paragraphIndex,
     totalParagraphs = totalParagraphs,
     deviceLabel = deviceLabel,
+    deviceKind = DeviceKind.normalize(deviceKind),
     updatedAt = updatedAt,
     historyHiddenAt = historyHiddenAt,
 )

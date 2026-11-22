@@ -117,6 +117,7 @@ class HistoryViewModelTest {
         assertEquals("14:32", initial.groups[0].items.single().timeLabel)
         assertEquals("09:05", initial.groups[1].items.single().timeLabel)
         assertEquals("https://api.example.com/v1/linovelib/cover/novel/n1", initial.groups[0].items.single().coverUrl)
+        assertEquals("mobile", initial.groups[0].items.single().deviceKind)
 
         // 2. 验证按章节名过滤
         viewModel.onSearchQueryChange("艾恩葛朗特")
@@ -147,6 +148,16 @@ class HistoryViewModelTest {
         assertTrue(viewModel.uiState.value.groups.isEmpty())
 
         collectJob.cancel()
+    }
+
+    @Test
+    fun deviceKindResolutionPrefersExplicitKindAndFallsBackToDeviceLabel() {
+        assertEquals("desktop", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind("desktop", "Pixel 9"))
+        assertEquals("mobile", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind("mobile", "Windows 11"))
+        assertEquals("desktop", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind("unknown", "Desktop Web"))
+        assertEquals("desktop", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind(null, "Windows 11"))
+        assertEquals("mobile", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind("unknown", "iOS Web"))
+        assertEquals("mobile", io.acanthis.app.core.platform.DeviceKind.resolveDisplayKind("unknown", "Google Pixel 8"))
     }
 
     private fun sampleProgress(

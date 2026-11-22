@@ -7,6 +7,7 @@ import io.acanthis.app.core.network.ApiException
 import io.acanthis.app.core.network.NovelDto
 import io.acanthis.app.core.parser.ReaderBlock
 import io.acanthis.app.core.parser.parseChapterBlocks
+import io.acanthis.app.core.platform.currentDeviceKind
 import io.acanthis.app.core.platform.currentTimeMillis
 import io.acanthis.app.core.preferences.ReaderSettings
 import io.acanthis.app.core.preferences.ReaderSettingsStore
@@ -506,6 +507,7 @@ class ReaderViewModel(
             paragraphIndex = blockIndex,
             totalParagraphs = state.blocks.size,
             deviceLabel = latestDeviceLabel,
+            deviceKind = currentDeviceKind(),
             updatedAt = currentTimeMillis(),
         )
     }

@@ -4,6 +4,8 @@ import io.acanthis.app.core.database.BookshelfCategoryEntity
 import io.acanthis.app.core.database.BookshelfEntity
 import io.acanthis.app.core.database.DirtySyncEntity
 import io.acanthis.app.core.database.ReadingProgressEntity
+import io.acanthis.app.core.platform.DeviceKind
+import io.acanthis.app.core.platform.currentDeviceKind
 import io.acanthis.app.core.platform.currentTimeMillis
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -354,8 +356,15 @@ class LibraryRepository(
         } else {
             configProvider?.currentConfig()?.deviceLabel.orEmpty()
         }
+        val normalizedKind = DeviceKind.normalize(progress.deviceKind)
+        val resolvedDeviceKind = if (normalizedKind != DeviceKind.UNKNOWN) {
+            normalizedKind
+        } else {
+            currentDeviceKind()
+        }
         val clean = progress.copy(
             deviceLabel = resolvedDeviceLabel,
+            deviceKind = resolvedDeviceKind,
             updatedAt = resolvedUpdatedAt,
             historyHiddenAt = resolvedHiddenAt,
         )

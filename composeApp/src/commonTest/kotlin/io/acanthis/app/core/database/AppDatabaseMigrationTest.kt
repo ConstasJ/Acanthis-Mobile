@@ -99,6 +99,16 @@ class AppDatabaseMigrationTest {
                 assertEquals(3000L, stmt.getLong(3))
                 assertTrue(stmt.isNull(4))
             }
+
+            // 4. 执行显式 MIGRATION_3_4 并验证 deviceKind 默认值
+            MIGRATION_3_4.migrate(connection)
+            connection.prepare(
+                "SELECT `deviceLabel`, `deviceKind` FROM `reading_progress` WHERE `platform` = 'linovelib' AND `novelId` = '1001'",
+            ).use { stmt ->
+                assertTrue(stmt.step())
+                assertEquals("Android", stmt.getText(0))
+                assertEquals("unknown", stmt.getText(1))
+            }
         } finally {
             connection.close()
         }
